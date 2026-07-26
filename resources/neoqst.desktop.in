@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=NeoQST
+Comment=Jade Empire QST quest editor
+Exec=NeoQST %f
+Icon=neoqst
+Terminal=false
+Categories=Utility;Development;
+MimeType=application/octet-stream;
