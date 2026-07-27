@@ -184,10 +184,12 @@ private:
         file->Append(ID_New, "&New QST\tCtrl+N");
         file->Append(ID_Open, "&Open...\tCtrl+O");
         gameDirectoryMenu_ = neogames::appendOpenGameDirectoryMenu(
-            *this, *file,
+            *this,
+            *file,
             neogames::OpenGameFileDialog{[this](const std::filesystem::path& directory) {
                 openDialog(directory);
-            }});
+            }},
+            neogames::GameDirectoryGameIds{"jade"});
         file->Append(ID_LoadTlk, "Load &TLK...");
         file->AppendSeparator();
         file->Append(ID_Save, "&Save\tCtrl+S");
