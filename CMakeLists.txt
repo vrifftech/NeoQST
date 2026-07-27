@@ -172,6 +172,10 @@ if(NEOQST_BUILD_WX_GUI)
         set(NEOQST_WX_SOURCES src/wx/main.cpp)
         if(WIN32)
             list(APPEND NEOQST_WX_SOURCES resources/neoqst.rc)
+        elseif(APPLE)
+            list(APPEND NEOQST_WX_SOURCES resources/neoqst.icns)
+            set_source_files_properties(resources/neoqst.icns PROPERTIES
+                MACOSX_PACKAGE_LOCATION "Resources")
         endif()
 
         if(WIN32)
@@ -190,6 +194,10 @@ if(NEOQST_BUILD_WX_GUI)
         target_compile_features(NeoQST PRIVATE cxx_std_17)
         neoqst_link_wx(NeoQST)
         neoqst_enable_warnings(NeoQST)
+        if(APPLE)
+            set_target_properties(NeoQST PROPERTIES
+                MACOSX_BUNDLE_ICON_FILE "neoqst.icns")
+        endif()
         install(TARGETS NeoQST
             BUNDLE DESTINATION .
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -201,7 +209,7 @@ if(NEOQST_BUILD_WX_GUI)
         endif()
 
         if(UNIX AND NOT APPLE)
-            foreach(NEO_ICON_SIZE 16 24 32 48 64 128 256)
+            foreach(NEO_ICON_SIZE 16 24 32 48 64 128 256 512)
                 install(FILES resources/icons/${NEO_ICON_SIZE}x${NEO_ICON_SIZE}/neoqst.png
                     DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/${NEO_ICON_SIZE}x${NEO_ICON_SIZE}/apps
                 )

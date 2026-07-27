@@ -189,7 +189,7 @@ private:
             neogames::OpenGameFileDialog{[this](const std::filesystem::path& directory) {
                 openDialog(directory);
             }},
-            neogames::GameDirectoryGameIds{"jade"});
+            std::vector<std::string>{"jade"});
         file->Append(ID_LoadTlk, "Load &TLK...");
         file->AppendSeparator();
         file->Append(ID_Save, "&Save\tCtrl+S");
