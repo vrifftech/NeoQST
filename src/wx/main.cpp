@@ -156,12 +156,13 @@ enum : int {
 class NeoQSTFrame final : public wxFrame {
 public:
     NeoQSTFrame()
-        : wxFrame(nullptr, wxID_ANY, "NeoQST", wxDefaultPosition, FromDIP(wxSize(1240, 820))),
+        : wxFrame(nullptr, wxID_ANY, "NeoQST", wxDefaultPosition, wxDefaultSize),
           settings_(kAppName) {
         SetIcon(wxIcon(neoqst_icon_xpm));
         SetMinSize(FromDIP(wxSize(900, 620)));
         buildMenus();
         buildLayout();
+        SetInitialSize(FromDIP(wxSize(1240, 820)));
         bindEvents();
         darkMode_ = settings_.darkMode();
         if (darkModeItem_) darkModeItem_->Check(darkMode_);

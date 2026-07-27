@@ -195,6 +195,11 @@ if(NEOQST_BUILD_WX_GUI)
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         )
 
+        if(BUILD_TESTING AND WIN32)
+            add_test(NAME neoqst-gui-startup COMMAND NeoQST --smoke-test)
+            set_tests_properties(neoqst-gui-startup PROPERTIES TIMEOUT 30)
+        endif()
+
         if(UNIX AND NOT APPLE)
             foreach(NEO_ICON_SIZE 16 24 32 48 64 128 256)
                 install(FILES resources/icons/${NEO_ICON_SIZE}x${NEO_ICON_SIZE}/neoqst.png
