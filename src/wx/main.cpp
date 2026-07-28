@@ -10,11 +10,14 @@
 
 #include <wx/aboutdlg.h>
 #include <wx/checkbox.h>
+#include <wx/checklst.h>
+#include <wx/choice.h>
 #include <wx/filedlg.h>
 #include <wx/listctrl.h>
 #include <wx/notebook.h>
 #include <wx/sizer.h>
 #include <wx/splitter.h>
+#include <wx/spinctrl.h>
 #include <wx/textctrl.h>
 
 #include <algorithm>
@@ -30,6 +33,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <unordered_set>
 #include <vector>
 
 using namespace neogff;
@@ -76,43 +80,30 @@ std::optional<UInt32> parseStrRef(const wxTextCtrl& control, const char* fieldNa
     return static_cast<UInt32>(value);
 }
 
-std::int32_t parseInt(const wxTextCtrl& control, const char* fieldName) {
+UInt32 parseUInt32(const wxTextCtrl& control, const char* fieldName) {
     const std::string text = trim(wxui::toStd(control.GetValue()));
     if (text.empty()) throw std::runtime_error(std::string(fieldName) + " is required.");
     std::size_t consumed = 0;
-    const long long value = std::stoll(text, &consumed, 10);
-    if (consumed != text.size() || value < std::numeric_limits<std::int32_t>::min() ||
-        value > std::numeric_limits<std::int32_t>::max()) {
-        throw std::runtime_error(std::string(fieldName) + " must be a signed 32-bit integer.");
+    const unsigned long long value = std::stoull(text, &consumed, 10);
+    if (consumed != text.size() || value > std::numeric_limits<UInt32>::max()) {
+        throw std::runtime_error(std::string(fieldName) + " must be an unsigned 32-bit integer.");
     }
-    return static_cast<std::int32_t>(value);
+    return static_cast<UInt32>(value);
 }
 
-std::vector<std::int32_t> parseIndexList(const wxTextCtrl& control) {
-    std::string text = wxui::toStd(control.GetValue());
-    for (char& ch : text) {
-        if (ch == ',' || ch == ';' || ch == '\n' || ch == '\t') ch = ' ';
+std::optional<std::string> parseOptionalResRef(const wxTextCtrl& control, const char* fieldName) {
+    const std::string value = trim(wxui::toStd(control.GetValue()));
+    if (value.empty()) return std::nullopt;
+    if (value.size() > 16u) {
+        throw std::runtime_error(std::string(fieldName) + " cannot exceed 16 characters.");
     }
-    std::istringstream input(text);
-    std::vector<std::int32_t> result;
-    long long value = 0;
-    while (input >> value) {
-        if (value < 0 || value > std::numeric_limits<std::int32_t>::max()) {
-            throw std::runtime_error("Task indices must be non-negative 32-bit integers.");
+    for (const unsigned char ch : value) {
+        if (!(std::isalnum(ch) != 0 || ch == '_')) {
+            throw std::runtime_error(std::string(fieldName) +
+                                     " may contain letters, digits, and underscores only.");
         }
-        result.push_back(static_cast<std::int32_t>(value));
     }
-    if (!input.eof()) throw std::runtime_error("Task indices must be separated by commas or spaces.");
-    return result;
-}
-
-std::string joinIndices(const std::vector<std::int32_t>& indices) {
-    std::ostringstream output;
-    for (std::size_t index = 0; index < indices.size(); ++index) {
-        if (index) output << ", ";
-        output << indices[index];
-    }
-    return output.str();
+    return value;
 }
 
 std::string strRefText(std::optional<UInt32> value) {
@@ -232,6 +223,22 @@ private:
         return control;
     }
 
+    wxSpinCtrl* addSpinField(wxWindow* parent,
+                             wxSizer& sizer,
+                             const wxString& label,
+                             int minimum,
+                             int maximum) {
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        auto* caption = new wxStaticText(parent, wxID_ANY, label);
+        caption->SetMinSize(FromDIP(wxSize(145, -1)));
+        row->Add(caption, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        auto* control = new wxSpinCtrl(parent, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
+                                       wxSP_ARROW_KEYS, minimum, maximum, minimum);
+        row->Add(control, 1, wxEXPAND);
+        sizer.Add(row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(6));
+        return control;
+    }
+
     void buildLayout() {
         CreateStatusBar(1);
         auto* root = new wxPanel(this);
@@ -256,6 +263,18 @@ private:
         outer->Add(fileBox, 0, wxEXPAND | wxALL, FromDIP(8));
 
         auto* questBox = new wxStaticBoxSizer(wxVERTICAL, root, "Quest metadata");
+        auto* typeRow = new wxBoxSizer(wxHORIZONTAL);
+        typeRow->Add(new wxStaticText(root, wxID_ANY, "Quest type:"), 0,
+                     wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        questType_ = new wxChoice(root, wxID_ANY);
+        questType_->Append("0 - Type 0");
+        questType_->Append("1 - Type 1");
+        questType_->SetSelection(0);
+        questType_->SetToolTip("Jade uses two journal categories. The runtime binary does not embed their authored display names.");
+        typeRow->Add(questType_, 0);
+        typeRow->AddStretchSpacer(1);
+        questBox->Add(typeRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(6));
+
         auto* questGrid = new wxFlexGridSizer(2, 4, FromDIP(6), FromDIP(8));
         questGrid->AddGrowableCol(1, 1);
         questGrid->AddGrowableCol(3, 2);
@@ -274,6 +293,45 @@ private:
         questDescriptionResolved_->SetMinSize(FromDIP(wxSize(-1, 55)));
         questGrid->Add(questDescriptionResolved_, 1, wxEXPAND);
         questBox->Add(questGrid, 1, wxEXPAND | wxALL, FromDIP(6));
+
+        runtimeStateEnabled_ = new wxCheckBox(root, wxID_ANY, "Store runtime quest state fields");
+        runtimeStateEnabled_->SetToolTip(
+            "Static QST definitions normally omit these fields. Enable this only when editing a serialized quest state.");
+        questBox->Add(runtimeStateEnabled_, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));
+
+        runtimeStatePanel_ = new wxPanel(root);
+        auto* runtimeSizer = new wxBoxSizer(wxVERTICAL);
+        auto* resrefRow = new wxBoxSizer(wxHORIZONTAL);
+        resrefRow->Add(new wxStaticText(runtimeStatePanel_, wxID_ANY, "Quest resource reference:"), 0,
+                       wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        questResRef_ = new wxTextCtrl(runtimeStatePanel_, wxID_ANY);
+        resrefRow->Add(questResRef_, 1, wxEXPAND);
+        runtimeSizer->Add(resrefRow, 0, wxEXPAND | wxBOTTOM, FromDIP(5));
+
+        auto* stateRow = new wxBoxSizer(wxHORIZONTAL);
+        stateRow->Add(new wxStaticText(runtimeStatePanel_, wxID_ANY, "State:"), 0,
+                      wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        questActive_ = new wxCheckBox(runtimeStatePanel_, wxID_ANY, "Active");
+        questComplete_ = new wxCheckBox(runtimeStatePanel_, wxID_ANY, "Complete");
+        questUpdated_ = new wxCheckBox(runtimeStatePanel_, wxID_ANY, "Updated");
+        stateRow->Add(questActive_, 0, wxRIGHT, FromDIP(12));
+        stateRow->Add(questComplete_, 0, wxRIGHT, FromDIP(12));
+        stateRow->Add(questUpdated_, 0);
+        runtimeSizer->Add(stateRow, 0, wxEXPAND | wxBOTTOM, FromDIP(5));
+
+        auto* timeRow = new wxBoxSizer(wxHORIZONTAL);
+        timeRow->Add(new wxStaticText(runtimeStatePanel_, wxID_ANY, "Timestamp high:"), 0,
+                     wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        questTimeHi_ = new wxTextCtrl(runtimeStatePanel_, wxID_ANY, "0");
+        timeRow->Add(questTimeHi_, 1, wxRIGHT, FromDIP(12));
+        timeRow->Add(new wxStaticText(runtimeStatePanel_, wxID_ANY, "Timestamp low:"), 0,
+                     wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        questTimeLo_ = new wxTextCtrl(runtimeStatePanel_, wxID_ANY, "0");
+        timeRow->Add(questTimeLo_, 1);
+        runtimeSizer->Add(timeRow, 0, wxEXPAND);
+        runtimeStatePanel_->SetSizer(runtimeSizer);
+        questBox->Add(runtimeStatePanel_, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));
+
         auto* questButtons = new wxBoxSizer(wxHORIZONTAL);
         questButtons->AddStretchSpacer(1);
         questButtons->Add(new wxButton(root, ID_ApplyQuest, "Apply quest metadata"), 0);
@@ -301,8 +359,9 @@ private:
                                    wxLC_REPORT | wxLC_SINGLE_SEL | wxLC_HRULES | wxLC_VRULES);
         taskList_->AppendColumn("Index", wxLIST_FORMAT_RIGHT, FromDIP(60));
         taskList_->AppendColumn("ID", wxLIST_FORMAT_RIGHT, FromDIP(70));
-        taskList_->AppendColumn("Task name", wxLIST_FORMAT_LEFT, FromDIP(270));
-        taskList_->AppendColumn("Next group index", wxLIST_FORMAT_RIGHT, FromDIP(115));
+        taskList_->AppendColumn("Task name", wxLIST_FORMAT_LEFT, FromDIP(245));
+        taskList_->AppendColumn("Complete", wxLIST_FORMAT_CENTER, FromDIP(75));
+        taskList_->AppendColumn("Next group", wxLIST_FORMAT_LEFT, FromDIP(150));
         taskList_->AppendColumn("Active notice", wxLIST_FORMAT_CENTER, FromDIP(95));
         taskList_->AppendColumn("Complete notice", wxLIST_FORMAT_CENTER, FromDIP(110));
         listSizer->Add(taskList_, 1, wxEXPAND | wxALL, FromDIP(6));
@@ -313,26 +372,41 @@ private:
         listPanel->SetSizer(listSizer);
 
         auto* editorSizer = new wxStaticBoxSizer(wxVERTICAL, editorPanel, "Selected task");
-        taskIdentifier_ = addTextField(editorPanel, *editorSizer, "Identifier:", 0, 0);
+        taskIdentifier_ = addSpinField(editorPanel, *editorSizer, "Identifier:", 0, kMaxQstIdentifier);
         taskNameRef_ = addTextField(editorPanel, *editorSizer, "Task name StrRef:", 0, 0);
         taskNameResolved_ = addTextField(editorPanel, *editorSizer, "Resolved task name:", wxTE_READONLY);
         taskSummaryRef_ = addTextField(editorPanel, *editorSizer, "Task summary StrRef:", 0, 0);
         taskSummaryResolved_ = addTextField(editorPanel, *editorSizer, "Resolved summary:", wxTE_READONLY | wxTE_MULTILINE);
         taskSummaryResolved_->SetMinSize(FromDIP(wxSize(-1, 80)));
-        taskPreRef_ = addTextField(editorPanel, *editorSizer, "Quest summary pre:", 0, 0);
+        taskPreRef_ = addTextField(editorPanel, *editorSizer, "Summary before activation:", 0, 0);
         taskPreResolved_ = addTextField(editorPanel, *editorSizer, "Resolved pre-summary:", wxTE_READONLY | wxTE_MULTILINE);
         taskPreResolved_->SetMinSize(FromDIP(wxSize(-1, 65)));
-        taskPostRef_ = addTextField(editorPanel, *editorSizer, "Quest summary post:", 0, 0);
+        taskPostRef_ = addTextField(editorPanel, *editorSizer, "Summary after completion:", 0, 0);
         taskPostResolved_ = addTextField(editorPanel, *editorSizer, "Resolved post-summary:", wxTE_READONLY | wxTE_MULTILINE);
         taskPostResolved_->SetMinSize(FromDIP(wxSize(-1, 65)));
-        taskNextGroup_ = addTextField(editorPanel, *editorSizer, "Next group list index:", 0, 0);
+
+        auto* nextRow = new wxBoxSizer(wxHORIZONTAL);
+        auto* nextLabel = new wxStaticText(editorPanel, wxID_ANY, "When group completes:");
+        nextLabel->SetMinSize(FromDIP(wxSize(145, -1)));
+        nextRow->Add(nextLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        taskNextGroup_ = new wxChoice(editorPanel, wxID_ANY);
+        nextRow->Add(taskNextGroup_, 1, wxEXPAND);
+        editorSizer->Add(nextRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(6));
+
+        auto* state = new wxBoxSizer(wxHORIZONTAL);
+        state->Add(new wxStaticText(editorPanel, wxID_ANY, "State:"), 0,
+                   wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        taskComplete_ = new wxCheckBox(editorPanel, wxID_ANY, "Complete");
+        state->Add(taskComplete_, 0);
+        editorSizer->Add(state, 0, wxEXPAND | wxALL, FromDIP(6));
+
         auto* checks = new wxBoxSizer(wxHORIZONTAL);
         checks->Add(new wxStaticText(editorPanel, wxID_ANY, "Notifications:"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
         taskNotifyActive_ = new wxCheckBox(editorPanel, wxID_ANY, "On activation");
         taskNotifyComplete_ = new wxCheckBox(editorPanel, wxID_ANY, "On completion");
         checks->Add(taskNotifyActive_, 0, wxRIGHT, FromDIP(14));
         checks->Add(taskNotifyComplete_, 0);
-        editorSizer->Add(checks, 0, wxEXPAND | wxALL, FromDIP(6));
+        editorSizer->Add(checks, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));
         auto* apply = new wxBoxSizer(wxHORIZONTAL);
         apply->AddStretchSpacer(1);
         apply->Add(new wxButton(editorPanel, ID_ApplyTask, "Apply task changes"), 0);
@@ -352,14 +426,18 @@ private:
         auto* splitter = new wxSplitterWindow(page, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                                                wxSP_LIVE_UPDATE | wxSP_3D);
         auto* listPanel = new wxPanel(splitter);
-        auto* editorPanel = new wxPanel(splitter);
+        auto* editorPanel = new wxScrolledWindow(splitter, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL);
+        editorPanel->SetScrollRate(0, FromDIP(12));
 
         auto* listSizer = new wxBoxSizer(wxVERTICAL);
         groupList_ = new wxListCtrl(listPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                                     wxLC_REPORT | wxLC_SINGLE_SEL | wxLC_HRULES | wxLC_VRULES);
-        groupList_->AppendColumn("Index", wxLIST_FORMAT_RIGHT, FromDIP(70));
-        groupList_->AppendColumn("Identifier", wxLIST_FORMAT_RIGHT, FromDIP(100));
-        groupList_->AppendColumn("Task list indices", wxLIST_FORMAT_LEFT, FromDIP(420));
+        groupList_->AppendColumn("Index", wxLIST_FORMAT_RIGHT, FromDIP(65));
+        groupList_->AppendColumn("Identifier", wxLIST_FORMAT_RIGHT, FromDIP(90));
+        groupList_->AppendColumn("Active", wxLIST_FORMAT_CENTER, FromDIP(70));
+        groupList_->AppendColumn("Completion rule", wxLIST_FORMAT_LEFT, FromDIP(145));
+        groupList_->AppendColumn("Tasks", wxLIST_FORMAT_LEFT, FromDIP(210));
+        groupList_->AppendColumn("On-complete script", wxLIST_FORMAT_LEFT, FromDIP(145));
         listSizer->Add(groupList_, 1, wxEXPAND | wxALL, FromDIP(6));
         auto* buttons = new wxBoxSizer(wxHORIZONTAL);
         buttons->Add(new wxButton(listPanel, ID_AddGroup, "Add task group"), 0, wxRIGHT, FromDIP(5));
@@ -368,16 +446,40 @@ private:
         listPanel->SetSizer(listSizer);
 
         auto* editorSizer = new wxStaticBoxSizer(wxVERTICAL, editorPanel, "Selected task group");
-        groupIdentifier_ = addTextField(editorPanel, *editorSizer, "Identifier:", 0, 0);
-        groupTaskIndices_ = addTextField(editorPanel, *editorSizer, "Task list indices:", wxTE_MULTILINE);
-        groupTaskIndices_->SetHint("Comma- or space-separated task list positions, e.g. 0, 2, 3");
-        groupTaskIndices_->SetMinSize(FromDIP(wxSize(-1, 130)));
+        groupIdentifier_ = addSpinField(editorPanel, *editorSizer, "Identifier:", 0, kMaxQstIdentifier);
+
+        auto* groupState = new wxBoxSizer(wxHORIZONTAL);
+        groupState->Add(new wxStaticText(editorPanel, wxID_ANY, "Group state:"), 0,
+                        wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        groupActive_ = new wxCheckBox(editorPanel, wxID_ANY, "Active");
+        groupState->Add(groupActive_, 0);
+        editorSizer->Add(groupState, 0, wxEXPAND | wxALL, FromDIP(6));
+
+        auto* modeRow = new wxBoxSizer(wxHORIZONTAL);
+        auto* modeLabel = new wxStaticText(editorPanel, wxID_ANY, "Completion rule:");
+        modeLabel->SetMinSize(FromDIP(wxSize(145, -1)));
+        modeRow->Add(modeLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        groupCompletionMode_ = new wxChoice(editorPanel, wxID_ANY);
+        groupCompletionMode_->Append("Any selected task completes the group");
+        groupCompletionMode_->Append("All selected tasks must complete");
+        groupCompletionMode_->SetSelection(0);
+        modeRow->Add(groupCompletionMode_, 1, wxEXPAND);
+        editorSizer->Add(modeRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(6));
+
+        groupOnComplete_ = addTextField(editorPanel, *editorSizer, "On-complete script:", 0, 0);
+        groupOnComplete_->SetHint("Optional script ResRef, up to 16 characters");
+
+        editorSizer->Add(new wxStaticText(editorPanel, wxID_ANY, "Tasks in this group:"), 0,
+                         wxLEFT | wxRIGHT | wxTOP, FromDIP(6));
+        groupTasks_ = new wxCheckListBox(editorPanel, wxID_ANY);
+        groupTasks_->SetMinSize(FromDIP(wxSize(-1, 220)));
+        editorSizer->Add(groupTasks_, 1, wxEXPAND | wxALL, FromDIP(6));
+
         auto* note = new wxStaticText(
             editorPanel, wxID_ANY,
-            "Important: TaskIndexList stores positions in TaskList, not task Identifier values.\n"
-            "NextTaskGroup likewise stores a position in TaskGroupList; -1 and -2 are engine sentinel values.");
-        note->Wrap(FromDIP(420));
-        editorSizer->Add(note, 0, wxEXPAND | wxALL, FromDIP(6));
+            "Task references are positions in TaskList. Jade stores them as signed bytes, so a QST can contain at most 128 tasks and 128 groups. A task may belong to one group.");
+        note->Wrap(FromDIP(440));
+        editorSizer->Add(note, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));
         auto* apply = new wxBoxSizer(wxHORIZONTAL);
         apply->AddStretchSpacer(1);
         apply->Add(new wxButton(editorPanel, ID_ApplyGroup, "Apply group changes"), 0);
@@ -420,6 +522,7 @@ private:
 
         taskList_->Bind(wxEVT_LIST_ITEM_SELECTED, [this](wxListEvent&) { loadSelectedTask(); });
         groupList_->Bind(wxEVT_LIST_ITEM_SELECTED, [this](wxListEvent&) { loadSelectedGroup(); });
+        runtimeStateEnabled_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { updateRuntimeStateEnabled(); });
         Bind(wxEVT_CLOSE_WINDOW, &NeoQSTFrame::onClose, this);
     }
 
@@ -557,6 +660,13 @@ private:
         refreshGroupList();
     }
 
+    void updateRuntimeStateEnabled() {
+        if (runtimeStatePanel_ != nullptr && runtimeStateEnabled_ != nullptr) {
+            runtimeStatePanel_->Enable(runtimeStateEnabled_->GetValue());
+            runtimeStatePanel_->GetParent()->Layout();
+        }
+    }
+
     void updateQuestFields() {
         const GffStruct* root = qst().root();
         if (root == nullptr) return;
@@ -566,6 +676,82 @@ private:
         questDescriptionRef_->ChangeValue(wxui::toWx(strRefText(description)));
         questNameResolved_->ChangeValue(wxui::toWx(resolve(name)));
         questDescriptionResolved_->ChangeValue(wxui::toWx(resolve(description)));
+
+        const std::int32_t questType = qstInt(*root, "QuestType").value_or(0);
+        questTypeValues_.clear();
+        questType_->Clear();
+        questType_->Append("0 - Type 0");
+        questTypeValues_.push_back(0);
+        questType_->Append("1 - Type 1");
+        questTypeValues_.push_back(1);
+        if (questType == 0 || questType == 1) {
+            questType_->SetSelection(questType);
+        } else {
+            questType_->Append(wxui::toWx("Existing value " + std::to_string(questType) +
+                                          " (runtime treats nonzero as Type 1)"));
+            questTypeValues_.push_back(questType);
+            questType_->SetSelection(static_cast<int>(questTypeValues_.size() - 1));
+        }
+
+        const bool hasRuntimeState = root->GetFieldByLabel("QuestResRef") != nullptr ||
+                                     root->GetFieldByLabel("QuestActive") != nullptr ||
+                                     root->GetFieldByLabel("QuestComplete") != nullptr ||
+                                     root->GetFieldByLabel("QuestUpdated") != nullptr ||
+                                     root->GetFieldByLabel("TimeHi") != nullptr ||
+                                     root->GetFieldByLabel("TimeLo") != nullptr;
+        runtimeStateEnabled_->SetValue(hasRuntimeState);
+        questResRef_->ChangeValue(wxui::toWx(qstResRef(*root, "QuestResRef").value_or(std::string{})));
+        questActive_->SetValue(qstInt(*root, "QuestActive").value_or(0) != 0);
+        questComplete_->SetValue(qstInt(*root, "QuestComplete").value_or(0) != 0);
+        questUpdated_->SetValue(qstInt(*root, "QuestUpdated").value_or(0) != 0);
+        questTimeHi_->ChangeValue(wxui::toWx(std::to_string(qstDword(*root, "TimeHi").value_or(0))));
+        questTimeLo_->ChangeValue(wxui::toWx(std::to_string(qstDword(*root, "TimeLo").value_or(0))));
+        updateRuntimeStateEnabled();
+    }
+
+    std::string describeNextGroup(std::int32_t value) const {
+        if (value == kQstNoNextGroup) return "No transition";
+        if (value == kQstCompleteQuest) return "Complete quest";
+        const GffList& groups = requireQstTaskGroupList(qst());
+        if (value >= 0 && static_cast<std::size_t>(value) < groups.count()) {
+            const GffStruct& group = listStruct(groups, static_cast<std::size_t>(value), "task group");
+            return "Group " + std::to_string(value) + " (ID " +
+                   std::to_string(qstEffectiveIdentifier(group)) + ")";
+        }
+        return "Invalid group index " + std::to_string(value);
+    }
+
+    void rebuildNextGroupChoices(std::int32_t selectedValue) {
+        taskNextGroup_->Clear();
+        taskNextGroupValues_.clear();
+        taskNextGroup_->Append("-1 - No transition");
+        taskNextGroupValues_.push_back(kQstNoNextGroup);
+        taskNextGroup_->Append("-2 - Complete and deactivate quest");
+        taskNextGroupValues_.push_back(kQstCompleteQuest);
+        const GffList& groups = requireQstTaskGroupList(qst());
+        for (std::size_t index = 0; index < groups.count(); ++index) {
+            const GffStruct& group = listStruct(groups, index, "task group");
+            taskNextGroup_->Append(wxui::toWx(std::to_string(index) + " - Group ID " +
+                                               std::to_string(qstEffectiveIdentifier(group))));
+            taskNextGroupValues_.push_back(static_cast<std::int32_t>(index));
+        }
+        auto found = std::find(taskNextGroupValues_.begin(), taskNextGroupValues_.end(), selectedValue);
+        if (found == taskNextGroupValues_.end()) {
+            taskNextGroup_->Append(wxui::toWx("Existing invalid value " + std::to_string(selectedValue)));
+            taskNextGroupValues_.push_back(selectedValue);
+            taskNextGroup_->SetSelection(static_cast<int>(taskNextGroupValues_.size() - 1));
+        } else {
+            taskNextGroup_->SetSelection(static_cast<int>(std::distance(taskNextGroupValues_.begin(), found)));
+        }
+    }
+
+    std::string groupTaskSummary(const std::vector<std::int32_t>& indices) const {
+        std::ostringstream output;
+        for (std::size_t index = 0; index < indices.size(); ++index) {
+            if (index != 0) output << ", ";
+            output << indices[index];
+        }
+        return output.str();
     }
 
     void refreshTaskList(std::optional<std::size_t> select = std::nullopt) {
@@ -575,11 +761,12 @@ private:
         for (std::size_t index = 0; index < tasks.count(); ++index) {
             const GffStruct& task = listStruct(tasks, index, "task");
             const long row = taskList_->InsertItem(taskList_->GetItemCount(), wxui::toWx(std::to_string(index)));
-            taskList_->SetItem(row, 1, wxui::toWx(std::to_string(qstEffectiveIdentifier(task, index))));
+            taskList_->SetItem(row, 1, wxui::toWx(std::to_string(qstEffectiveIdentifier(task))));
             taskList_->SetItem(row, 2, wxui::toWx(resolve(qstJadeStringRef(task, "TaskName"))));
-            taskList_->SetItem(row, 3, wxui::toWx(std::to_string(qstInt(task, "NextTaskGroup").value_or(-1))));
-            taskList_->SetItem(row, 4, qstInt(task, "NotifyActive").value_or(0) != 0 ? "Yes" : "No");
-            taskList_->SetItem(row, 5, qstInt(task, "NotifyComplete").value_or(0) != 0 ? "Yes" : "No");
+            taskList_->SetItem(row, 3, qstInt(task, "Complete").value_or(0) != 0 ? "Yes" : "No");
+            taskList_->SetItem(row, 4, wxui::toWx(describeNextGroup(qstInt(task, "NextTaskGroup").value_or(kQstNoNextGroup))));
+            taskList_->SetItem(row, 5, qstInt(task, "NotifyActive").value_or(0) != 0 ? "Yes" : "No");
+            taskList_->SetItem(row, 6, qstInt(task, "NotifyComplete").value_or(0) != 0 ? "Yes" : "No");
             taskList_->SetItemData(row, static_cast<long>(index));
             wxui::styleListRow(*taskList_, row, darkMode_);
         }
@@ -596,8 +783,11 @@ private:
         for (std::size_t index = 0; index < groups.count(); ++index) {
             const GffStruct& group = listStruct(groups, index, "task group");
             const long row = groupList_->InsertItem(groupList_->GetItemCount(), wxui::toWx(std::to_string(index)));
-            groupList_->SetItem(row, 1, wxui::toWx(std::to_string(qstEffectiveIdentifier(group, index))));
-            groupList_->SetItem(row, 2, wxui::toWx(joinIndices(qstGroupTaskIndices(qst(), index))));
+            groupList_->SetItem(row, 1, wxui::toWx(std::to_string(qstEffectiveIdentifier(group))));
+            groupList_->SetItem(row, 2, qstInt(group, "Active").value_or(0) != 0 ? "Yes" : "No");
+            groupList_->SetItem(row, 3, qstInt(group, "ANDGroup").value_or(0) != 0 ? "All tasks" : "Any task");
+            groupList_->SetItem(row, 4, wxui::toWx(groupTaskSummary(qstGroupTaskIndices(qst(), index))));
+            groupList_->SetItem(row, 5, wxui::toWx(qstResRef(group, "OnComplete").value_or(std::string{})));
             groupList_->SetItemData(row, static_cast<long>(index));
             wxui::styleListRow(*groupList_, row, darkMode_);
         }
@@ -620,7 +810,7 @@ private:
             const auto index = selectedIndex(*taskList_);
             if (!index) { clearTaskFields(); return; }
             const GffStruct& task = listStruct(requireQstTaskList(qst()), *index, "task");
-            taskIdentifier_->ChangeValue(wxui::toWx(std::to_string(qstEffectiveIdentifier(task, *index))));
+            taskIdentifier_->SetValue(qstEffectiveIdentifier(task));
             const auto name = qstJadeStringRef(task, "TaskName");
             const auto summary = qstJadeStringRef(task, "TaskSummary");
             const auto pre = qstJadeStringRef(task, "QuestSummaryPre");
@@ -633,7 +823,8 @@ private:
             taskPreResolved_->ChangeValue(wxui::toWx(resolve(pre)));
             taskPostRef_->ChangeValue(wxui::toWx(strRefText(post)));
             taskPostResolved_->ChangeValue(wxui::toWx(resolve(post)));
-            taskNextGroup_->ChangeValue(wxui::toWx(std::to_string(qstInt(task, "NextTaskGroup").value_or(-1))));
+            rebuildNextGroupChoices(qstInt(task, "NextTaskGroup").value_or(kQstNoNextGroup));
+            taskComplete_->SetValue(qstInt(task, "Complete").value_or(0) != 0);
             taskNotifyActive_->SetValue(qstInt(task, "NotifyActive").value_or(0) != 0);
             taskNotifyComplete_->SetValue(qstInt(task, "NotifyComplete").value_or(0) != 0);
         } catch (const std::exception& ex) {
@@ -642,13 +833,36 @@ private:
     }
 
     void clearTaskFields() {
-        for (wxTextCtrl* control : {taskIdentifier_, taskNameRef_, taskNameResolved_, taskSummaryRef_,
+        if (taskIdentifier_) taskIdentifier_->SetValue(0);
+        for (wxTextCtrl* control : {taskNameRef_, taskNameResolved_, taskSummaryRef_,
                                     taskSummaryResolved_, taskPreRef_, taskPreResolved_, taskPostRef_,
-                                    taskPostResolved_, taskNextGroup_}) {
+                                    taskPostResolved_}) {
             if (control) control->ChangeValue(wxEmptyString);
         }
+        if (taskNextGroup_) {
+            taskNextGroup_->Clear();
+            taskNextGroupValues_.clear();
+        }
+        if (taskComplete_) taskComplete_->SetValue(false);
         if (taskNotifyActive_) taskNotifyActive_->SetValue(false);
         if (taskNotifyComplete_) taskNotifyComplete_->SetValue(false);
+    }
+
+    void populateGroupTasks(const std::vector<std::int32_t>& checked) {
+        groupTasks_->Clear();
+        std::unordered_set<std::int32_t> checkedSet(checked.begin(), checked.end());
+        const GffList& tasks = requireQstTaskList(qst());
+        for (std::size_t index = 0; index < tasks.count(); ++index) {
+            const GffStruct& task = listStruct(tasks, index, "task");
+            std::string label = std::to_string(index) + " - ID " +
+                                std::to_string(qstEffectiveIdentifier(task));
+            const std::string resolvedName = resolve(qstJadeStringRef(task, "TaskName"));
+            if (!resolvedName.empty()) label += " - " + resolvedName;
+            groupTasks_->Append(wxui::toWx(label));
+            if (checkedSet.find(static_cast<std::int32_t>(index)) != checkedSet.end()) {
+                groupTasks_->Check(static_cast<unsigned int>(index), true);
+            }
+        }
     }
 
     void loadSelectedGroup() {
@@ -656,16 +870,22 @@ private:
             const auto index = selectedIndex(*groupList_);
             if (!index) { clearGroupFields(); return; }
             const GffStruct& group = listStruct(requireQstTaskGroupList(qst()), *index, "task group");
-            groupIdentifier_->ChangeValue(wxui::toWx(std::to_string(qstEffectiveIdentifier(group, *index))));
-            groupTaskIndices_->ChangeValue(wxui::toWx(joinIndices(qstGroupTaskIndices(qst(), *index))));
+            groupIdentifier_->SetValue(qstEffectiveIdentifier(group));
+            groupActive_->SetValue(qstInt(group, "Active").value_or(0) != 0);
+            groupCompletionMode_->SetSelection(qstInt(group, "ANDGroup").value_or(0) != 0 ? 1 : 0);
+            groupOnComplete_->ChangeValue(wxui::toWx(qstResRef(group, "OnComplete").value_or(std::string{})));
+            populateGroupTasks(qstGroupTaskIndices(qst(), *index));
         } catch (const std::exception& ex) {
             wxui::showError(this, ex);
         }
     }
 
     void clearGroupFields() {
-        if (groupIdentifier_) groupIdentifier_->ChangeValue(wxEmptyString);
-        if (groupTaskIndices_) groupTaskIndices_->ChangeValue(wxEmptyString);
+        if (groupIdentifier_) groupIdentifier_->SetValue(0);
+        if (groupActive_) groupActive_->SetValue(false);
+        if (groupCompletionMode_) groupCompletionMode_->SetSelection(0);
+        if (groupOnComplete_) groupOnComplete_->ChangeValue(wxEmptyString);
+        if (groupTasks_) groupTasks_->Clear();
     }
 
     void applyQuest() {
@@ -675,7 +895,34 @@ private:
             setQstJadeStringRef(*root, "QuestName", 4u, parseStrRef(*questNameRef_, "Quest name StrRef"));
             setQstJadeStringRef(*root, "QuestDescription", 4u,
                                 parseStrRef(*questDescriptionRef_, "Quest description StrRef"));
+
+            const int typeSelection = questType_->GetSelection();
+            if (typeSelection == wxNOT_FOUND || static_cast<std::size_t>(typeSelection) >= questTypeValues_.size()) {
+                throw std::runtime_error("Select a quest type.");
+            }
+            const std::int32_t questType = questTypeValues_[static_cast<std::size_t>(typeSelection)];
+            if (root->GetFieldByLabel("QuestType") != nullptr || questType != 0) {
+                setQstInt(*root, "QuestType", questType);
+            }
+
+            if (runtimeStateEnabled_->GetValue()) {
+                setQstOptionalResRef(*root, "QuestResRef", parseOptionalResRef(*questResRef_, "Quest resource reference"));
+                setQstInt(*root, "QuestActive", questActive_->GetValue() ? 1 : 0);
+                setQstInt(*root, "QuestComplete", questComplete_->GetValue() ? 1 : 0);
+                setQstInt(*root, "QuestUpdated", questUpdated_->GetValue() ? 1 : 0);
+                setQstDword(*root, "TimeHi", parseUInt32(*questTimeHi_, "Timestamp high"));
+                setQstDword(*root, "TimeLo", parseUInt32(*questTimeLo_, "Timestamp low"));
+            } else {
+                setQstOptionalResRef(*root, "QuestResRef", std::nullopt);
+                setQstOptionalInt(*root, "QuestActive", std::nullopt);
+                setQstOptionalInt(*root, "QuestComplete", std::nullopt);
+                setQstOptionalInt(*root, "QuestUpdated", std::nullopt);
+                setQstOptionalDword(*root, "TimeHi", std::nullopt);
+                setQstOptionalDword(*root, "TimeLo", std::nullopt);
+            }
+
             qst().dirty(true);
+            validateQst(qst());
             updateAll();
             wxui::setStatusText(*this, "Applied quest metadata.");
         } catch (const std::exception& ex) {
@@ -687,16 +934,23 @@ private:
         try {
             const auto index = selectedIndex(*taskList_);
             if (!index) throw std::runtime_error("Select a task first.");
-            const std::int32_t identifier = parseInt(*taskIdentifier_, "Task identifier");
-            changeQstTaskIdentifier(qst(), *index, identifier);
+            changeQstTaskIdentifier(qst(), *index, taskIdentifier_->GetValue());
             GffStruct& task = listStruct(requireQstTaskList(qst()), *index, "task");
             setQstJadeStringRef(task, "TaskName", 4u, parseStrRef(*taskNameRef_, "Task name StrRef"));
             setQstJadeStringRef(task, "TaskSummary", 4u, parseStrRef(*taskSummaryRef_, "Task summary StrRef"));
             setQstJadeStringRef(task, "QuestSummaryPre", 4u,
-                                parseStrRef(*taskPreRef_, "Quest summary pre StrRef"), true);
+                                parseStrRef(*taskPreRef_, "Quest summary before activation StrRef"), true);
             setQstJadeStringRef(task, "QuestSummaryPost", 4u,
-                                parseStrRef(*taskPostRef_, "Quest summary post StrRef"), true);
-            setQstInt(task, "NextTaskGroup", parseInt(*taskNextGroup_, "Next task-group list index"));
+                                parseStrRef(*taskPostRef_, "Quest summary after completion StrRef"), true);
+
+            const int nextSelection = taskNextGroup_->GetSelection();
+            if (nextSelection == wxNOT_FOUND ||
+                static_cast<std::size_t>(nextSelection) >= taskNextGroupValues_.size()) {
+                throw std::runtime_error("Select what should happen when this task's group completes.");
+            }
+            setQstInt(task, "NextTaskGroup", taskNextGroupValues_[static_cast<std::size_t>(nextSelection)]);
+            setQstOptionalInt(task, "Complete", taskComplete_->GetValue() ? std::optional<std::int32_t>{1}
+                                                                           : std::nullopt);
             setQstInt(task, "NotifyActive", taskNotifyActive_->GetValue() ? 1 : 0);
             setQstInt(task, "NotifyComplete", taskNotifyComplete_->GetValue() ? 1 : 0);
             qst().dirty(true);
@@ -742,8 +996,25 @@ private:
         try {
             const auto index = selectedIndex(*groupList_);
             if (!index) throw std::runtime_error("Select a task group first.");
-            changeQstGroupIdentifier(qst(), *index, parseInt(*groupIdentifier_, "Task-group identifier"));
-            replaceQstGroupTaskIndices(qst(), *index, parseIndexList(*groupTaskIndices_));
+            changeQstGroupIdentifier(qst(), *index, groupIdentifier_->GetValue());
+
+            std::vector<std::int32_t> taskIndices;
+            for (unsigned int taskIndex = 0; taskIndex < groupTasks_->GetCount(); ++taskIndex) {
+                if (groupTasks_->IsChecked(taskIndex)) {
+                    taskIndices.push_back(static_cast<std::int32_t>(taskIndex));
+                }
+            }
+            replaceQstGroupTaskIndices(qst(), *index, taskIndices);
+
+            GffStruct& group = listStruct(requireQstTaskGroupList(qst()), *index, "task group");
+            setQstOptionalInt(group, "Active", groupActive_->GetValue() ? std::optional<std::int32_t>{1}
+                                                                         : std::nullopt);
+            setQstOptionalInt(group, "ANDGroup", groupCompletionMode_->GetSelection() == 1
+                                                     ? std::optional<std::int32_t>{1}
+                                                     : std::nullopt);
+            setQstOptionalResRef(group, "OnComplete",
+                                 parseOptionalResRef(*groupOnComplete_, "On-complete script"));
+            qst().dirty(true);
             validateQst(qst());
             refreshGroupList(*index);
             refreshTaskList(selectedIndex(*taskList_));
@@ -853,12 +1124,23 @@ private:
     wxMenuItem* darkModeItem_ = nullptr;
     wxTextCtrl* filePath_ = nullptr;
     wxTextCtrl* tlkPath_ = nullptr;
+    wxChoice* questType_ = nullptr;
+    std::vector<std::int32_t> questTypeValues_;
     wxTextCtrl* questNameRef_ = nullptr;
     wxTextCtrl* questNameResolved_ = nullptr;
     wxTextCtrl* questDescriptionRef_ = nullptr;
     wxTextCtrl* questDescriptionResolved_ = nullptr;
+    wxCheckBox* runtimeStateEnabled_ = nullptr;
+    wxPanel* runtimeStatePanel_ = nullptr;
+    wxTextCtrl* questResRef_ = nullptr;
+    wxCheckBox* questActive_ = nullptr;
+    wxCheckBox* questComplete_ = nullptr;
+    wxCheckBox* questUpdated_ = nullptr;
+    wxTextCtrl* questTimeHi_ = nullptr;
+    wxTextCtrl* questTimeLo_ = nullptr;
+
     wxListCtrl* taskList_ = nullptr;
-    wxTextCtrl* taskIdentifier_ = nullptr;
+    wxSpinCtrl* taskIdentifier_ = nullptr;
     wxTextCtrl* taskNameRef_ = nullptr;
     wxTextCtrl* taskNameResolved_ = nullptr;
     wxTextCtrl* taskSummaryRef_ = nullptr;
@@ -867,12 +1149,18 @@ private:
     wxTextCtrl* taskPreResolved_ = nullptr;
     wxTextCtrl* taskPostRef_ = nullptr;
     wxTextCtrl* taskPostResolved_ = nullptr;
-    wxTextCtrl* taskNextGroup_ = nullptr;
+    wxChoice* taskNextGroup_ = nullptr;
+    std::vector<std::int32_t> taskNextGroupValues_;
+    wxCheckBox* taskComplete_ = nullptr;
     wxCheckBox* taskNotifyActive_ = nullptr;
     wxCheckBox* taskNotifyComplete_ = nullptr;
+
     wxListCtrl* groupList_ = nullptr;
-    wxTextCtrl* groupIdentifier_ = nullptr;
-    wxTextCtrl* groupTaskIndices_ = nullptr;
+    wxSpinCtrl* groupIdentifier_ = nullptr;
+    wxCheckBox* groupActive_ = nullptr;
+    wxChoice* groupCompletionMode_ = nullptr;
+    wxTextCtrl* groupOnComplete_ = nullptr;
+    wxCheckListBox* groupTasks_ = nullptr;
 };
 
 class NeoQSTApp final : public wxApp {
@@ -881,19 +1169,10 @@ public:
 #if wxCHECK_VERSION(3, 3, 0)
         SetAppearance(Appearance::System);
 #endif
-        const bool smokeTest =
-            argc > 1 && wxString(argv[1]) == wxString::FromUTF8("--smoke-test");
-
         auto* frame = new NeoQSTFrame();
-        frame->Show(!smokeTest);
-        if (!smokeTest && argc > 1) {
+        frame->Show(true);
+        if (argc > 1) {
             frame->openFromCommandLine(neosettings::pathFromWx(wxString(argv[1])));
-        }
-        if (smokeTest) {
-            CallAfter([frame]() {
-                frame->Destroy();
-                if (wxTheApp != nullptr) wxTheApp->ExitMainLoop();
-            });
         }
         return true;
     }

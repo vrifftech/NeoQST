@@ -145,7 +145,7 @@ void printQst(const GffFile& qst, const neotlk::TlkLookup* tlk) {
     for (std::size_t index = 0; index < tasks.count(); ++index) {
         const GffStruct* task = tasks.GetStruct(index);
         if (task == nullptr) continue;
-        std::cout << index << "\tID=" << qstEffectiveIdentifier(*task, index)
+        std::cout << index << "\tID=" << qstEffectiveIdentifier(*task)
                   << "\tNextGroup=" << intText(*task, "NextTaskGroup")
                   << "\tNotifyActive=" << intText(*task, "NotifyActive")
                   << "\tNotifyComplete=" << intText(*task, "NotifyComplete")
@@ -164,7 +164,7 @@ void printQst(const GffFile& qst, const neotlk::TlkLookup* tlk) {
     for (std::size_t index = 0; index < groups.count(); ++index) {
         const GffStruct* group = groups.GetStruct(index);
         if (group == nullptr) continue;
-        std::cout << index << "\tID=" << qstEffectiveIdentifier(*group, index) << "\tTaskIndices=";
+        std::cout << index << "\tID=" << qstEffectiveIdentifier(*group) << "\tTaskIndices=";
         const auto taskIndices = qstGroupTaskIndices(qst, index);
         for (std::size_t item = 0; item < taskIndices.size(); ++item) {
             if (item) std::cout << ',';

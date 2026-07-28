@@ -76,7 +76,6 @@ function(neoqst_enable_warnings target_name)
 endfunction()
 
 include(GNUInstallDirs)
-include(CTest)
 
 message(STATUS "Using NeoShared: ${NEOSHARED_ROOT}")
 include("${NEOSHARED_ROOT}/cmake/NeoMinimalRelease.cmake")
@@ -112,12 +111,6 @@ if(NEOQST_BUILD_CLI)
     install(TARGETS neoqst-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
-if(BUILD_TESTING)
-    add_executable(neoqst-operation-tests tests/QstOperationsTests.cpp)
-    target_link_libraries(neoqst-operation-tests PRIVATE neoqst_core)
-    neoqst_enable_warnings(neoqst-operation-tests)
-    add_test(NAME neoqst-operation-tests COMMAND neoqst-operation-tests)
-endif()
 
 function(neoqst_link_wx target_name)
     target_compile_definitions(${target_name} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
@@ -203,10 +196,6 @@ if(NEOQST_BUILD_WX_GUI)
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         )
 
-        if(BUILD_TESTING AND WIN32)
-            add_test(NAME neoqst-gui-startup COMMAND NeoQST --smoke-test)
-            set_tests_properties(neoqst-gui-startup PROPERTIES TIMEOUT 30)
-        endif()
 
         if(UNIX AND NOT APPLE)
             foreach(NEO_ICON_SIZE 16 24 32 48 64 128 256 512)

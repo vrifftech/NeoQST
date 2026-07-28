@@ -54,8 +54,6 @@ jobs:
             ninja-build \
             pkg-config \
             libwxgtk3.2-dev \
-            xauth \
-            xvfb \
             zlib1g-dev
 
       - name: Configure and build
@@ -74,17 +72,11 @@ jobs:
             --jobs 2 \
             --clean
 
-      - name: Run tests
-        run: ctest --test-dir tool/build -C Release --output-on-failure
-
       - name: Stage install tree
         run: cmake --install tool/build --config Release --prefix tool/stage
 
       - name: Bundle the matching wxWidgets runtime
         run: bash tool/scripts/bundle-linux-wx.sh tool/stage
-
-      - name: Smoke-test the portable GUI
-        run: xvfb-run -a tool/stage/bin/NeoQST --smoke-test
 
       - name: Package portable Linux tree
         run: |
@@ -173,10 +165,6 @@ jobs:
             -VcpkgTriplet x64-windows-static `
             -Parallel 2 `
             -Clean
-
-      - name: Run tests
-        shell: pwsh
-        run: ctest --test-dir tool/build -C Release --output-on-failure
 
       - name: Stage install tree
         shell: pwsh

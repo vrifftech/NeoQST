@@ -2,82 +2,110 @@
 
 [![CI](https://github.com/vrifftech/NeoQST/actions/workflows/ci.yml/badge.svg)](https://github.com/vrifftech/NeoQST/actions/workflows/ci.yml)
 
-NeoQST is a purpose-aware editor for Jade Empire `QST V3.2` quest resources. It is an independent repository and builds against the separate sibling `NeoShared` repository.
+NeoQST is a purpose-aware editor for Jade Empire `QST V3.2` quest resources. It builds against the separate sibling NeoShared repository.
 
 ## QST and QST2
 
-`.qst` and `.qst2` are treated as filename-extension aliases for the same native payload. Both contain a GFF V3.2 document whose internal file type is `QST `; there is no separate `QST2` header or second document schema.
+`.qst` and `.qst2` are filename-extension aliases for the same native payload. Both contain a GFF V3.2 document with internal file type `QST `. NeoQST opens and saves either extension, preserves the extension of an opened document, and defaults new documents to `.qst`.
 
-NeoQST:
+## Runtime-backed quest model
 
-- opens and saves both extensions;
-- preserves the extension of an opened file;
-- defaults new documents to `.qst`;
-- uses the same validation and editor for both.
+NeoQST exposes the fields loaded and saved by Jade Empire's journal runtime.
 
-Observed `.qst2` resources use the same internal `QST V3.2` header and schema as `.qst`. NeoQST therefore treats `.qst2` as an accepted filename alias rather than inventing a second document format. The canonical Jade archive resource extension remains `.qst`.
+Quest fields include:
 
-## Quest model
+```text
+QuestType
+QuestName
+QuestDescription
+TaskList
+TaskGroupList
+```
 
-NeoQST exposes the Jade-specific QST structure rather than presenting it as a generic GFF tree:
+Serialized runtime-state resources may also contain:
 
-- quest name and description Jade StringRefs;
-- task name, summary, optional pre/post quest summaries, notifications, and next-group transition;
-- task groups and their task membership;
-- optional Jade TLK lookup for resolved text previews;
-- XML and JSON import/export;
-- native QST/QST2 validation and round trips.
+```text
+QuestResRef
+QuestActive
+QuestComplete
+QuestUpdated
+TimeHi
+TimeLo
+```
 
-QST has two different notions of identity:
+Those state fields remain absent from ordinary static QST definitions unless **Store runtime quest state fields** is enabled.
 
-- `Identifier` is the visible task or group identifier. The first item may omit it, in which case its list index is the effective identifier.
-- `TaskIndexList.Task` and `NextTaskGroup` are **list positions**, not `Identifier` values.
+Task fields include:
 
-NeoQST therefore repairs positional references when deleting a task or task group. Changing an `Identifier` does not rewrite positional references.
+```text
+TaskName
+TaskSummary
+QuestSummaryPre
+QuestSummaryPost
+Identifier
+Complete
+NextTaskGroup
+NotifyActive
+NotifyComplete
+```
 
-## Repository layout
+Task-group fields include:
+
+```text
+Identifier
+TaskIndexList
+Active
+ANDGroup
+OnComplete
+```
+
+`ANDGroup = 0` completes the group when any member task completes. `ANDGroup = 1` requires all member tasks. `OnComplete` is an optional script run when the group completes.
+
+## Identifiers and list references
+
+Jade uses two different kinds of number:
+
+- Task and group `Identifier` values are signed 16-bit runtime identifiers. NeoQST permits `0` through `32767` and requires uniqueness within the task list or group list. A missing `Identifier` has runtime value `0`.
+- `TaskIndexList.Task` and nonnegative `NextTaskGroup` values are signed-byte **list positions**, not Identifier values. A QST is therefore limited to 128 tasks and 128 task groups.
+
+`NextTaskGroup` supports:
+
+```text
+-1  no transition
+-2  complete and deactivate the quest
+0–127  activate the corresponding task-group list position
+```
+
+Jade stores one owning task-group pointer in each task. NeoQST therefore prevents the same task list position from being assigned to multiple groups.
+
+Deleting a task repairs every positional task reference. Deleting a group repairs every `NextTaskGroup` reference. Changing an Identifier does not rewrite positional references.
+
+## Build
 
 Clone NeoQST and NeoShared as siblings:
 
 ```text
 workspace/
-  neoshared/
+  NeoShared/
   NeoQST/
 ```
-
-CMake uses `../neoshared` by default. A different location can be supplied with:
-
-```text
--DNEOSHARED_ROOT=/path/to/NeoShared
-```
-
-The build wrappers expose the same setting as `--neoshared-root` on Linux and `-NeoSharedRoot` on Windows.
-
-## Build
 
 Linux GUI build:
 
 ```sh
-bash ./scripts/build.sh \
-  --wx ON \
-  --require-wx ON \
-  --jobs "$(nproc)" \
-  --clean
+bash ./scripts/build.sh --wx ON --require-wx ON --jobs "$(nproc)" --clean
 ```
 
 Linux CLI/core-only build:
 
 ```sh
-bash ./scripts/build.sh \
-  --wx OFF \
-  --jobs "$(nproc)" \
-  --clean
+bash ./scripts/build.sh --wx OFF --jobs "$(nproc)" --clean
 ```
 
 Windows GUI build:
 
 ```powershell
-& ..\neoshared\scripts\install-wxwidgets.ps1 `
+& ..\NeoShared\scripts\install-wxwidgets.ps1 `
   -VcpkgRoot C:\vcpkg `
   -Triplet x64-windows-static `
   -CleanAfterBuild
@@ -86,6 +114,7 @@ Windows GUI build:
   -Clean `
   -Wx ON `
   -RequireWx ON `
+  -NeoSharedRoot ..\NeoShared `
   -VcpkgRoot C:\vcpkg `
   -VcpkgTriplet x64-windows-static `
   -Parallel ([Environment]::ProcessorCount)
@@ -104,25 +133,6 @@ neoqst-cli --export quest.qst json output.json
 neoqst-cli --import input.xml output.qst xml
 ```
 
-Run `neoqst-cli --help` for patch-generation options and the complete syntax.
-
-## Linux runner artifact
-
-The Linux workflow publishes `NeoQST-linux-x86_64.tar.gz`. Keep its directory structure intact and launch `NeoQST/bin/NeoQST`; the launcher loads the exact wxWidgets shared libraries bundled by the runner before starting the real executable.
-
 ## Shared game directories
 
-**File > Open Game Directory** lists installations saved by the Neo tools. Selecting Jade Empire opens NeoQST's QST/QST2 file picker at that installation directory. **Manage Game Directories...** edits the shared installation registry.
-
-## Tests
-
-The regression test covers:
-
-- new QST creation;
-- `.qst2` native save/reopen;
-- task and group insertion;
-- unique identifiers;
-- list-position reference validation;
-- task-reference repair after deletion;
-- next-group repair after group deletion;
-- Jade StringRef fields.
+**File > Open Game Directory** and **Manage Game Directories...** show only Jade Empire installations. The underlying installation registry remains shared with the other Neo tools.

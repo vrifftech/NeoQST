@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
@@ -14,6 +15,12 @@ using neogff::GffFile;
 using neogff::GffList;
 using neogff::GffStruct;
 using neogff::UInt32;
+
+inline constexpr std::size_t kMaxQstTasks = 128;
+inline constexpr std::size_t kMaxQstTaskGroups = 128;
+inline constexpr std::int32_t kMaxQstIdentifier = 32767;
+inline constexpr std::int32_t kQstNoNextGroup = -1;
+inline constexpr std::int32_t kQstCompleteQuest = -2;
 
 struct QstInsertResult {
     std::size_t index = 0;
@@ -35,7 +42,8 @@ const GffList& requireQstTaskList(const GffFile& qst);
 GffList& requireQstTaskGroupList(GffFile& qst);
 const GffList& requireQstTaskGroupList(const GffFile& qst);
 
-std::int32_t qstEffectiveIdentifier(const GffStruct& structure, std::size_t fallbackIndex);
+// Jade initializes a missing Identifier to zero.
+std::int32_t qstEffectiveIdentifier(const GffStruct& structure);
 std::int32_t suggestQstTaskIdentifier(const GffFile& qst);
 std::int32_t suggestQstGroupIdentifier(const GffFile& qst);
 
@@ -52,8 +60,8 @@ QstDeleteResult deleteQstTaskGroup(GffFile& qst, std::size_t groupIndex);
 
 std::vector<std::int32_t> qstGroupTaskIndices(const GffFile& qst, std::size_t groupIndex);
 void replaceQstGroupTaskIndices(GffFile& qst,
-                                    std::size_t groupIndex,
-                                    const std::vector<std::int32_t>& taskIndices);
+                                std::size_t groupIndex,
+                                const std::vector<std::int32_t>& taskIndices);
 
 void setQstJadeStringRef(GffStruct& structure,
                          const std::string& label,
@@ -64,5 +72,19 @@ void setQstJadeStringRef(GffStruct& structure,
 std::optional<UInt32> qstJadeStringRef(const GffStruct& structure, const std::string& label);
 std::optional<std::int32_t> qstInt(const GffStruct& structure, const std::string& label);
 void setQstInt(GffStruct& structure, const std::string& label, std::int32_t value);
+void setQstOptionalInt(GffStruct& structure,
+                       const std::string& label,
+                       std::optional<std::int32_t> value);
+
+std::optional<UInt32> qstDword(const GffStruct& structure, const std::string& label);
+void setQstDword(GffStruct& structure, const std::string& label, UInt32 value);
+void setQstOptionalDword(GffStruct& structure,
+                         const std::string& label,
+                         std::optional<UInt32> value);
+
+std::optional<std::string> qstResRef(const GffStruct& structure, const std::string& label);
+void setQstOptionalResRef(GffStruct& structure,
+                          const std::string& label,
+                          const std::optional<std::string>& value);
 
 } // namespace neoqst
