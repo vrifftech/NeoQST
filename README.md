@@ -412,7 +412,6 @@ NeoQST:
 - Preserves the extension of an opened file.
 - Uses `.qst` for a new document by default.
 
-There is no separate QST2 schema in the files examined. Two supplied same-quest `.qst` and `.qst2` files were byte-for-byte identical.
 
 ## Limits and validation
 
@@ -439,12 +438,11 @@ Deleting a task repairs group membership positions. Deleting a group repairs tas
 
 ### Common mistakes
 
-- **Treating QST2 as a companion file.** It is only another extension for the same QST format.
 - **Using a group identifier as a next-group number.** Choose the destination from NeoQST's dropdown; the file uses the group's list position internally.
 - **Putting one task in several groups.** Jade stores only one owning group for each task.
 - **Enabling runtime state for an ordinary mod resource.** Leave it off unless the file intentionally carries live or saved quest progress.
 - **Checking Complete on a new task.** This makes the task begin in an already-completed state.
-- **Changing a StringRef and expecting the TLK wording to change.** A StringRef only points to the talk table; edit the text itself in NeoTLK.
+
 
 ## Shared game directories
 
@@ -465,22 +463,6 @@ The command-line utility can also generate TSLPatcher/HoloPatcher-oriented diffe
 
 XML and JSON are useful for inspection, source control, or scripted transformations. Native QST is the format used by the game.
 
-## Command-line utility
-
-```text
-neoqst-cli <quest.qst|quest.qst2> [dialog.tlk]
-neoqst-cli --info <quest.qst|quest.qst2>
-neoqst-cli --new <output.qst|output.qst2>
-neoqst-cli --roundtrip <input.qst|qst2> <output.qst|qst2>
-neoqst-cli --search <quest.qst|qst2> <term>
-neoqst-cli --export <quest.qst|qst2> <xml|json> <output>
-neoqst-cli --import <input.xml|json|qst|qst2> <output.qst|qst2> <xml|json|native|auto>
-```
-
-For the full patch-generation syntax:
-
-```sh
-neoqst-cli --help
 ```
 
 ## Building NeoQST
