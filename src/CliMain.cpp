@@ -3,7 +3,6 @@
 #include <gff/GffTypeNames.hpp>
 #include <gff/GffXml.hpp>
 #include "TabularData.hpp"
-#include "TslPatcher.hpp"
 #include <neotlk/TlkLookup.hpp>
 
 #include <algorithm>
@@ -192,53 +191,6 @@ void loadImportedQst(GffFile& qst, const std::filesystem::path& input, std::stri
     validateQst(qst);
 }
 
-struct PatchOptions {
-    bool package = true;
-    bool allowUnsupported = false;
-    std::string filename;
-    std::string modifiedFormat = "auto";
-};
-
-PatchOptions parsePatchOptions(int argc, char** argv, int begin, const std::filesystem::path& original) {
-    PatchOptions options;
-    options.filename = neotsl::basenameForPatch(original);
-    for (int index = begin; index < argc; ++index) {
-        const std::string argument = argv[index];
-        if (argument == "--package") options.package = true;
-        else if (argument == "--fragment") options.package = false;
-        else if (argument == "--allow-unsupported") options.allowUnsupported = true;
-        else if (argument == "--filename") {
-            if (++index >= argc) throw std::runtime_error("--filename requires a value.");
-            options.filename = argv[index];
-        } else if (argument == "--modified-format" || argument == "--input-format") {
-            if (++index >= argc) throw std::runtime_error(argument + " requires a value.");
-            options.modifiedFormat = argv[index];
-        } else {
-            throw std::runtime_error("Unknown patcher option: " + argument);
-        }
-    }
-    return options;
-}
-
-int diffPatcher(const std::filesystem::path& originalPath,
-                const std::filesystem::path& modifiedPath,
-                const std::filesystem::path& output,
-                const PatchOptions& options) {
-    GffFile original;
-    original.LoadFile(originalPath);
-    validateQst(original);
-    GffFile modified;
-    loadImportedQst(modified, modifiedPath, options.modifiedFormat);
-    if (original.version() != modified.version()) throw std::runtime_error("The QST versions do not match.");
-    auto project = neotsl::diffGffFlatTable(qstTable(original), qstTable(modified), options.filename,
-                                           options.package, originalPath);
-    if (!options.allowUnsupported) neotsl::throwIfUnsupported(project);
-    else neotsl::printReport(project);
-    if (options.package) neotsl::writePackage(project, output, true);
-    else neotsl::writeFragment(project, output);
-    return 0;
-}
-
 int info(const std::filesystem::path& input) {
     GffFile qst;
     qst.LoadFile(input);
@@ -291,9 +243,6 @@ void usage() {
         << "  neoqst-cli --search <quest.qst|qst2> <term>\n"
         << "  neoqst-cli --export <quest.qst|qst2> <xml|json> <output>\n"
         << "  neoqst-cli --import <input.xml|json|qst|qst2> <output.qst|qst2> <xml|json|native|auto>\n"
-        << "  neoqst-cli --diff-tslpatcher <original.qst> <modified-input> <output-dir|fragment.ini>"
-           " [--modified-format xml|json|qst|qst2|gff|native|auto] [--package|--fragment]"
-           " [--filename name] [--allow-unsupported]\n\n"
         << "QST and QST2 are filename-extension aliases for the same QST V3.2 GFF payload.\n";
 }
 
@@ -336,11 +285,6 @@ int main(int argc, char** argv) {
         if (argc >= 2 && std::string(argv[1]) == "--import") {
             if (argc != 5) { usage(); return 2; }
             return importDocument(argv[2], argv[3], argv[4]);
-        }
-        if (argc >= 2 && (std::string(argv[1]) == "--diff-tslpatcher" ||
-                          std::string(argv[1]) == "diff-tslpatcher")) {
-            if (argc < 5) { usage(); return 2; }
-            return diffPatcher(argv[2], argv[3], argv[4], parsePatchOptions(argc, argv, 5, argv[2]));
         }
         if (argc < 2 || argc > 3) {
             usage();

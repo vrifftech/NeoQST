@@ -105,7 +105,6 @@ if(NEOQST_BUILD_CLI)
         neoqst_core
         neoshared::tlk
         neoshared::tabular
-        neoshared::tslpatcher
     )
     neoqst_enable_warnings(neoqst-cli)
     install(TARGETS neoqst-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
