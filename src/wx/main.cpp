@@ -150,15 +150,14 @@ public:
         : wxFrame(nullptr, wxID_ANY, "NeoQST", wxDefaultPosition, wxDefaultSize),
           settings_(kAppName) {
         SetIcon(wxIcon(neoqst_icon_xpm));
-        SetMinSize(FromDIP(wxSize(900, 620)));
         buildMenus();
         buildLayout();
-        SetInitialSize(FromDIP(wxSize(1240, 820)));
+        wxui::configureResponsiveWindow(*this, wxSize(1240, 820), wxSize(720, 480));
         bindEvents();
         darkMode_ = settings_.darkMode();
         if (darkModeItem_) darkModeItem_->Check(darkMode_);
         wxui::applyTheme(this, darkMode_);
-        if (!settings_.restoreWindowPlacement(*this)) Centre();
+        settings_.restoreWindowPlacement(*this);
         createNew(false);
         tryLoadCachedTlk();
         updateAll();
