@@ -79,6 +79,8 @@ include(GNUInstallDirs)
 
 message(STATUS "Using NeoShared: ${NEOSHARED_ROOT}")
 include("${NEOSHARED_ROOT}/cmake/NeoMinimalRelease.cmake")
+include("${NEOSHARED_ROOT}/cmake/NeoMacOSBundle.cmake")
+include("${NEOSHARED_ROOT}/cmake/NeoWasm.cmake")
 if(NOT TARGET neoshared::gff)
     add_subdirectory("${NEOSHARED_ROOT}"
         "${CMAKE_CURRENT_BINARY_DIR}/neoshared" EXCLUDE_FROM_ALL)
@@ -164,10 +166,6 @@ if(NEOQST_BUILD_WX_GUI)
         set(NEOQST_WX_SOURCES src/wx/main.cpp)
         if(WIN32)
             list(APPEND NEOQST_WX_SOURCES resources/neoqst.rc)
-        elseif(APPLE)
-            list(APPEND NEOQST_WX_SOURCES resources/neoqst.icns)
-            set_source_files_properties(resources/neoqst.icns PROPERTIES
-                MACOSX_PACKAGE_LOCATION "Resources")
         endif()
 
         if(WIN32)
@@ -177,6 +175,16 @@ if(NEOQST_BUILD_WX_GUI)
         else()
             add_executable(NeoQST ${NEOQST_WX_SOURCES})
         endif()
+        neo_configure_macos_bundle(NeoQST
+            NAME "NeoQST"
+            IDENTIFIER "com.vrifftech.neoqst"
+            ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/neoqst.icns"
+        )
+        neo_configure_wasm_target(NeoQST
+            NAME "NeoQST"
+            SLUG "neoqst"
+            ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/neoqst.svg"
+        )
         target_link_libraries(NeoQST PRIVATE
             neoqst_core
             neoshared::tlk
@@ -186,10 +194,6 @@ if(NEOQST_BUILD_WX_GUI)
         target_compile_features(NeoQST PRIVATE cxx_std_17)
         neoqst_link_wx(NeoQST)
         neoqst_enable_warnings(NeoQST)
-        if(APPLE)
-            set_target_properties(NeoQST PROPERTIES
-                MACOSX_BUNDLE_ICON_FILE "neoqst.icns")
-        endif()
         install(TARGETS NeoQST
             BUNDLE DESTINATION .
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -220,7 +224,6 @@ if(NEOQST_BUILD_WX_GUI)
     endif()
 endif()
 
-install(FILES README.md DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/NeoQST)
 
 neo_force_static_msvc_runtime_for_directory_targets()
 neo_apply_minimal_release_to_directory_targets()

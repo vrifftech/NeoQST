@@ -19,12 +19,14 @@
 #include <wx/splitter.h>
 #include <wx/spinctrl.h>
 #include <wx/textctrl.h>
+#include <wx/weakref.h>
 
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -35,6 +37,11 @@
 #include <utility>
 #include <unordered_set>
 #include <vector>
+
+#if defined(__EMSCRIPTEN__)
+static_assert(neobrowser::kBrowserFileApiVersion >= 10u,
+              "NeoQST requires owned browser imports and transactional write-back from the current neoshared checkout.");
+#endif
 
 using namespace neogff;
 using namespace neoqst;
@@ -528,23 +535,98 @@ private:
     GffFile& qst() { return *qst_; }
     const GffFile& qst() const { return *qst_; }
 
-    bool confirmDiscardOrSave() {
+    using SaveCompletion = std::function<void(bool)>;
+    using DeferredAction = std::function<void()>;
+
+    std::filesystem::path documentFilename() const {
+        if (!logicalFilename_.empty()) return logicalFilename_;
+        return qst().filename();
+    }
+
+#if defined(__EMSCRIPTEN__)
+    using BrowserImportCallback = std::function<void(neobrowser::BrowserImportLease)>;
+
+    void requestBrowserImport(const std::string& title,
+                              const std::string& accept,
+                              bool multiple,
+                              BrowserImportCallback callback) {
+        wxWeakRef<NeoQSTFrame> weakSelf(this);
+        neobrowser::requestOpenFilesOwned(
+            title, accept, multiple,
+            [weakSelf, callback = std::move(callback)](
+                neobrowser::OwnedOpenFilesResult result) mutable {
+                if (!weakSelf || weakSelf->IsBeingDeleted()) return;
+                auto* const frame = weakSelf.get();
+                if (!result.error.empty()) {
+                    wxMessageBox(wxui::toWx(result.error), "File Open Error",
+                                 wxOK | wxICON_ERROR, frame);
+                    return;
+                }
+                if (result.cancelled()) return;
+                callback(std::move(result.import));
+            });
+    }
+
+    static bool importOwnsPath(const neobrowser::BrowserImportLease& import,
+                               const std::filesystem::path& path) {
+        return std::find(import.paths().begin(), import.paths().end(), path) !=
+               import.paths().end();
+    }
+#endif
+
+    bool confirmDiscardOrSave(DeferredAction afterSave = {}) {
+#if !defined(__EMSCRIPTEN__)
+        (void)afterSave;
+#endif
+        if (saveInProgress_) {
+            wxui::showMessage(this, "Save in progress",
+                              "Finish the browser save transaction before replacing or closing this document.");
+            return false;
+        }
         if (!qst().loaded() || !qst().dirty()) return true;
         const int answer = wxMessageBox(
             "The current QST has unsaved changes. Save them before continuing?",
             "Unsaved NeoQST changes", wxYES_NO | wxCANCEL | wxICON_QUESTION, this);
         if (answer == wxCANCEL) return false;
-        if (answer == wxYES) return save();
+        if (answer == wxYES) {
+#if defined(__EMSCRIPTEN__)
+            SaveCompletion completion;
+            if (afterSave) {
+                completion = [action = std::move(afterSave)](bool succeeded) mutable {
+                    if (succeeded && action) action();
+                };
+            }
+            (void)save(std::move(completion));
+            // Browser publication is asynchronous. The caller must stop the
+            // original navigation and let the completion continue it.
+            return false;
+#else
+            return save();
+#endif
+        }
         return true;
     }
 
     void createNew(bool prompt) {
         try {
-            if (prompt && !confirmDiscardOrSave()) return;
+            if (prompt) {
+                wxWeakRef<NeoQSTFrame> weakSelf(this);
+                if (!confirmDiscardOrSave([weakSelf]() {
+                        if (weakSelf && !weakSelf->IsBeingDeleted()) {
+                            weakSelf->createNew(false);
+                        }
+                    })) {
+                    return;
+                }
+            }
             auto replacement = std::make_unique<GffFile>();
             initializeNewQst(*replacement);
             replacement->dirty(false);
             qst_ = std::move(replacement);
+            logicalFilename_.clear();
+#if defined(__EMSCRIPTEN__)
+            sourceImport_.reset();
+#endif
             updateAll();
             wxui::setStatusText(*this, "Created a new QST document.");
         } catch (const std::exception& ex) {
@@ -553,36 +635,37 @@ private:
     }
 
     void openDialog(const std::filesystem::path& initialDirectory) {
+#if defined(__EMSCRIPTEN__)
+        (void)initialDirectory;
+        requestBrowserImport(
+            "Open Jade Empire QST",
+            ".qst,.qst2",
+            false,
+            [this](neobrowser::BrowserImportLease import) {
+                if (import.empty() || IsBeingDeleted()) return;
+                const std::filesystem::path path = import.paths().front();
+                openFile(path, std::move(import));
+            });
+#else
         const auto path = wxui::chooseOpenFile(this, "Open Jade Empire QST", kQstWildcard, initialDirectory);
         if (path) openFile(*path);
+#endif
     }
 
-    void openFile(const std::filesystem::path& path) {
+    bool installOpenFile(const std::filesystem::path& path) {
         try {
-            if (!confirmDiscardOrSave()) return;
             auto replacement = std::make_unique<GffFile>();
             replacement->LoadFile(path);
             validateQst(*replacement);
             replacement->dirty(false);
             qst_ = std::move(replacement);
+            logicalFilename_ = path;
+#if defined(__EMSCRIPTEN__)
+            sourceImport_.reset();
+#endif
             settings_.addRecentFile(path);
             updateAll();
             wxui::setStatusText(*this, "Opened " + neosettings::pathToUtf8(path));
-        } catch (const std::exception& ex) {
-            wxui::showError(this, ex);
-        }
-    }
-
-    bool save() {
-        try {
-            if (!qst().loaded()) throw std::runtime_error("No QST document is loaded.");
-            if (qst().filename().empty()) return saveAs();
-            validateQst(qst());
-            qst().SaveFile();
-            qst().dirty(false);
-            settings_.addRecentFile(qst().filename());
-            updateTitleAndPaths();
-            wxui::setStatusText(*this, "Saved " + neosettings::pathToUtf8(qst().filename()));
             return true;
         } catch (const std::exception& ex) {
             wxui::showError(this, ex);
@@ -590,41 +673,196 @@ private:
         }
     }
 
-    bool saveAs() {
+#if defined(__EMSCRIPTEN__)
+    void installOpenFile(const std::filesystem::path& path,
+                         neobrowser::BrowserImportLease import) {
+        if (installOpenFile(path)) {
+            sourceImport_ = std::move(import);
+        }
+    }
+
+    void openFile(const std::filesystem::path& path,
+                  neobrowser::BrowserImportLease import) {
+        struct PendingOpen {
+            std::filesystem::path path;
+            neobrowser::BrowserImportLease import;
+        };
+        auto pending = std::make_shared<PendingOpen>();
+        pending->path = path;
+        pending->import = std::move(import);
+        wxWeakRef<NeoQSTFrame> weakSelf(this);
+        DeferredAction action = [weakSelf, pending]() mutable {
+            if (!weakSelf || weakSelf->IsBeingDeleted()) return;
+            weakSelf->installOpenFile(pending->path, std::move(pending->import));
+        };
+        if (!confirmDiscardOrSave(action)) return;
+        action();
+    }
+#endif
+
+    void openFile(const std::filesystem::path& path) {
+        wxWeakRef<NeoQSTFrame> weakSelf(this);
+        DeferredAction action = [weakSelf, path]() {
+            if (weakSelf && !weakSelf->IsBeingDeleted()) {
+                weakSelf->installOpenFile(path);
+            }
+        };
+        if (!confirmDiscardOrSave(action)) return;
+        action();
+    }
+
+    bool saveTo(const std::filesystem::path& target,
+                SaveCompletion completion = {}) {
         try {
             if (!qst().loaded()) throw std::runtime_error("No QST document is loaded.");
-            const std::string defaultName = qst().filename().empty()
+            if (target.empty()) return false;
+            if (saveInProgress_) return false;
+            validateQst(qst());
+            const bool wasDirty = qst().dirty();
+            qst().SaveFile(target);
+
+#if defined(__EMSCRIPTEN__)
+            saveInProgress_ = true;
+            updateTitleAndPaths();
+            Enable(false);
+
+            wxWeakRef<NeoQSTFrame> weakSelf(this);
+            neobrowser::requestDownloadFile(
+                target,
+                target.filename().string(),
+                [weakSelf, target, wasDirty,
+                 completion = std::move(completion)](
+                    neobrowser::DownloadResult result) mutable {
+                    if (!weakSelf || weakSelf->IsBeingDeleted()) return;
+                    auto* const frame = weakSelf.get();
+                    frame->saveInProgress_ = false;
+                    frame->Enable(true);
+
+                    if (!result.error.empty() || result.cancelled()) {
+                        frame->qst().dirty(wasDirty);
+                        frame->updateTitleAndPaths();
+                        const std::string message = result.error.empty()
+                            ? "The browser save transaction was cancelled."
+                            : result.error;
+                        wxMessageBox(wxui::toWx(message), "Save Failed",
+                                     wxOK | wxICON_ERROR, frame);
+                        if (completion) completion(false);
+                        return;
+                    }
+
+                    if (result.ready()) {
+                        // A prepared Blob is not host persistence. Preserve the
+                        // dirty state and cancel any pending destructive action
+                        // until the user explicitly downloads the replacement.
+                        frame->qst().dirty(wasDirty);
+                        frame->updateTitleAndPaths();
+                        wxui::setStatusText(
+                            *frame,
+                            "Replacement ready; the original host file was not overwritten.");
+                        wxui::showMessage(
+                            frame,
+                            "Replacement download ready",
+                            "The browser could not overwrite the original host file directly. "
+                            "A replacement QST is ready in the download panel. The document remains marked modified, "
+                            "and the pending close/open/new action was cancelled. Download the replacement, then repeat the action.");
+                        if (completion) completion(false);
+                        return;
+                    }
+
+                    if (!result.saved()) {
+                        frame->qst().dirty(wasDirty);
+                        frame->updateTitleAndPaths();
+                        wxMessageBox(
+                            "The browser did not confirm that the QST was written.",
+                            "Save Failed", wxOK | wxICON_ERROR, frame);
+                        if (completion) completion(false);
+                        return;
+                    }
+
+                    frame->logicalFilename_ = target;
+                    frame->qst().dirty(false);
+                    if (!frame->importOwnsPath(frame->sourceImport_, target)) {
+                        frame->sourceImport_.reset();
+                    }
+                    frame->settings_.addRecentFile(target);
+                    frame->updateTitleAndPaths();
+                    wxui::setStatusText(
+                        *frame, "Saved " + neosettings::pathToUtf8(target));
+                    if (completion) completion(true);
+                });
+            return true;
+#else
+            qst().dirty(false);
+            logicalFilename_ = target;
+            settings_.addRecentFile(target);
+            updateTitleAndPaths();
+            wxui::setStatusText(*this, "Saved " + neosettings::pathToUtf8(target));
+            if (completion) completion(true);
+            return true;
+#endif
+        } catch (const std::exception& ex) {
+            wxui::showError(this, ex);
+            if (completion) completion(false);
+            return false;
+        }
+    }
+
+    bool save(SaveCompletion completion = {}) {
+        if (!qst().loaded()) {
+            wxui::showError(this, std::runtime_error("No QST document is loaded."));
+            return false;
+        }
+        const std::filesystem::path target = documentFilename();
+        if (target.empty()) return saveAs(std::move(completion));
+        return saveTo(target, std::move(completion));
+    }
+
+    bool saveAs(SaveCompletion completion = {}) {
+        try {
+            if (!qst().loaded()) throw std::runtime_error("No QST document is loaded.");
+            if (saveInProgress_) return false;
+            const std::filesystem::path current = documentFilename();
+            const std::string defaultName = current.empty()
                                                 ? "untitled.qst"
-                                                : neosettings::pathToUtf8(qst().filename().filename());
+                                                : neosettings::pathToUtf8(current.filename());
             auto path = wxui::chooseSaveFile(this, "Save Jade Empire QST as", kQstWildcard, defaultName);
             if (!path) return false;
             if (path->extension().empty()) *path += ".qst";
-            validateQst(qst());
-            qst().SaveFile(*path);
-            qst().dirty(false);
-            settings_.addRecentFile(*path);
-            updateTitleAndPaths();
-            wxui::setStatusText(*this, "Saved " + neosettings::pathToUtf8(*path));
-            return true;
+            return saveTo(*path, std::move(completion));
         } catch (const std::exception& ex) {
             wxui::showError(this, ex);
+            if (completion) completion(false);
             return false;
         }
     }
 
     void loadTlkDialog() {
+#if defined(__EMSCRIPTEN__)
+        requestBrowserImport(
+            "Load Jade Empire TLK",
+            ".tlk",
+            false,
+            [this](neobrowser::BrowserImportLease import) {
+                if (import.empty() || IsBeingDeleted()) return;
+                loadTlk(import.paths().front(), true, false);
+            });
+#else
         const auto path = wxui::chooseOpenFile(this, "Load Jade Empire TLK", kTlkWildcard);
         if (!path) return;
         loadTlk(*path, true);
+#endif
     }
 
-    void loadTlk(const std::filesystem::path& path, bool reportErrors) {
+    void loadTlk(const std::filesystem::path& path,
+                 bool reportErrors,
+                 bool rememberPath = true) {
         try {
             neotlk::TlkLookup replacement;
             replacement.load(path);
             tlk_ = std::move(replacement);
             tlkPathValue_ = path;
-            settings_.setLastTlkPath(path);
+            if (rememberPath) settings_.setLastTlkPath(path);
+            else settings_.clearLastTlkPath();
             updateAll();
             wxui::setStatusText(*this, "Loaded TLK " + neosettings::pathToUtf8(path));
         } catch (const std::exception& ex) {
@@ -633,8 +871,13 @@ private:
     }
 
     void tryLoadCachedTlk() {
+#if defined(__EMSCRIPTEN__)
+        settings_.clearLastTlkPath();
+        return;
+#else
         const auto cached = settings_.lastTlkPath();
         if (cached && std::filesystem::is_regular_file(*cached)) loadTlk(*cached, false);
+#endif
     }
 
     std::string resolve(std::optional<UInt32> strref) const {
@@ -644,11 +887,13 @@ private:
     }
 
     void updateTitleAndPaths() {
-        const std::string name = qst().filename().empty()
+        const std::filesystem::path filename = documentFilename();
+        const std::string name = filename.empty()
                                      ? "Untitled.qst"
-                                     : neosettings::pathToUtf8(qst().filename().filename());
-        SetTitle(wxui::toWx(std::string("NeoQST - ") + name + (qst().dirty() ? " *" : "")));
-        filePath_->ChangeValue(qst().filename().empty() ? wxString("(unsaved)") : neosettings::pathToWx(qst().filename()));
+                                     : neosettings::pathToUtf8(filename.filename());
+        SetTitle(wxui::toWx(std::string("NeoQST - ") + name +
+                            (saveInProgress_ ? " (saving...)" : (qst().dirty() ? " *" : ""))));
+        filePath_->ChangeValue(filename.empty() ? wxString("(unsaved)") : neosettings::pathToWx(filename));
         tlkPath_->ChangeValue(tlkPathValue_.empty() ? wxString("(not loaded)") : neosettings::pathToWx(tlkPathValue_));
     }
 
@@ -1052,20 +1297,52 @@ private:
         }
     }
 
-    void importDocument(const std::string& format) {
+    void importDocumentFromPath(const std::string& format, const std::filesystem::path& path) {
         try {
-            if (!confirmDiscardOrSave()) return;
-            const char* wildcard = format == "xml" ? kXmlWildcard : kJsonWildcard;
-            const auto path = wxui::chooseOpenFile(this, "Import QST " + format, wildcard);
-            if (!path) return;
             auto replacement = std::make_unique<GffFile>();
-            if (format == "xml") LoadGffXml(*replacement, readTextFile(*path));
-            else LoadGffXml(*replacement, gffJsonToXml(readTextFile(*path)));
+            if (format == "xml") LoadGffXml(*replacement, readTextFile(path));
+            else LoadGffXml(*replacement, gffJsonToXml(readTextFile(path)));
             validateQst(*replacement);
             replacement->dirty(true);
             qst_ = std::move(replacement);
+            logicalFilename_.clear();
+#if defined(__EMSCRIPTEN__)
+            sourceImport_.reset();
+#endif
             updateAll();
             wxui::setStatusText(*this, "Imported " + format + " QST document.");
+        } catch (const std::exception& ex) {
+            wxui::showError(this, ex);
+        }
+    }
+
+    void importDocument(const std::string& format, bool prompt = true) {
+        try {
+            if (prompt) {
+                wxWeakRef<NeoQSTFrame> weakSelf(this);
+                if (!confirmDiscardOrSave([weakSelf, format]() {
+                        if (weakSelf && !weakSelf->IsBeingDeleted()) {
+                            weakSelf->importDocument(format, false);
+                        }
+                    })) {
+                    return;
+                }
+            }
+#if defined(__EMSCRIPTEN__)
+            requestBrowserImport(
+                "Import QST " + format,
+                format == "xml" ? ".xml" : ".json",
+                false,
+                [this, format](neobrowser::BrowserImportLease import) {
+                    if (import.empty() || IsBeingDeleted()) return;
+                    importDocumentFromPath(format, import.paths().front());
+                });
+#else
+            const char* wildcard = format == "xml" ? kXmlWildcard : kJsonWildcard;
+            const auto path = wxui::chooseOpenFile(this, "Import QST " + format, wildcard);
+            if (!path) return;
+            importDocumentFromPath(format, *path);
+#endif
         } catch (const std::exception& ex) {
             wxui::showError(this, ex);
         }
@@ -1075,7 +1352,8 @@ private:
         try {
             validateQst(qst());
             const char* wildcard = format == "xml" ? kXmlWildcard : kJsonWildcard;
-            std::string defaultName = qst().filename().empty() ? "quest" : neosettings::pathToUtf8(qst().filename().stem());
+            const std::filesystem::path filename = documentFilename();
+            std::string defaultName = filename.empty() ? "quest" : neosettings::pathToUtf8(filename.stem());
             defaultName += "." + format;
             const auto path = wxui::chooseSaveFile(this, "Export QST " + format, wildcard, defaultName);
             if (!path) return;
@@ -1105,9 +1383,22 @@ private:
     }
 
     void onClose(wxCloseEvent& event) {
-        if (event.CanVeto() && !confirmDiscardOrSave()) {
-            event.Veto();
-            return;
+        if (event.CanVeto()) {
+            if (saveInProgress_) {
+                wxui::showMessage(this, "Save in progress",
+                                  "Finish the browser save transaction before closing NeoQST.");
+                event.Veto();
+                return;
+            }
+            wxWeakRef<NeoQSTFrame> weakSelf(this);
+            if (!confirmDiscardOrSave([weakSelf]() {
+                    if (weakSelf && !weakSelf->IsBeingDeleted()) {
+                        weakSelf->Close();
+                    }
+                })) {
+                event.Veto();
+                return;
+            }
         }
         settings_.saveWindowPlacement(*this);
         event.Skip();
@@ -1116,8 +1407,13 @@ private:
     neosettings::AppSettings settings_;
     std::unique_ptr<neogames::OpenGameDirectoryMenu> gameDirectoryMenu_;
     std::unique_ptr<GffFile> qst_ = std::make_unique<GffFile>();
+    std::filesystem::path logicalFilename_;
     std::optional<neotlk::TlkLookup> tlk_;
     std::filesystem::path tlkPathValue_;
+    bool saveInProgress_ = false;
+#if defined(__EMSCRIPTEN__)
+    neobrowser::BrowserImportLease sourceImport_;
+#endif
     bool darkMode_ = false;
 
     wxMenuItem* darkModeItem_ = nullptr;
