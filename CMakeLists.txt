@@ -7,29 +7,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STR
 
 project(NeoQST VERSION 1.0.0 DESCRIPTION "Jade Empire QST/QST2 quest editor" LANGUAGES CXX)
 
-set(NEOSHARED_ROOT "" CACHE PATH
-    "Path to the NeoShared source repository; defaults to ../neoshared")
-if(NOT NEOSHARED_ROOT AND DEFINED ENV{NEOSHARED_ROOT}
-   AND NOT "$ENV{NEOSHARED_ROOT}" STREQUAL "")
-    set(NEOSHARED_ROOT "$ENV{NEOSHARED_ROOT}" CACHE PATH
-        "Path to the NeoShared source repository" FORCE)
-endif()
-if(NOT NEOSHARED_ROOT)
-    get_filename_component(NEOSHARED_ROOT
-        "${CMAKE_CURRENT_LIST_DIR}/../neoshared" ABSOLUTE)
-else()
-    get_filename_component(NEOSHARED_ROOT "${NEOSHARED_ROOT}" ABSOLUTE
-        BASE_DIR "${CMAKE_CURRENT_LIST_DIR}")
-endif()
-set(NEOSHARED_ROOT "${NEOSHARED_ROOT}" CACHE PATH
-    "Path to the NeoShared source repository" FORCE)
-
-if(NOT EXISTS "${NEOSHARED_ROOT}/CMakeLists.txt")
-    message(FATAL_ERROR
-        "NeoShared was not found at '${NEOSHARED_ROOT}'. "
-        "Clone NeoShared beside this repository, or configure with "
-        "-DNEOSHARED_ROOT=/path/to/NeoShared.")
-endif()
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/NeoSharedSource.cmake")
 
 if(MSVC)
     foreach(_neo_runtime_flag_var IN ITEMS

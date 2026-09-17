@@ -4,6 +4,7 @@
 #include <gff/GffXml.hpp>
 #include "TabularData.hpp"
 #include <neotlk/TlkLookup.hpp>
+#include <neoshared/PathUtf8.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -31,12 +32,7 @@ std::string lowerAscii(std::string value) {
 }
 
 std::string pathToUtf8(const std::filesystem::path& path) {
-#if defined(__cpp_lib_char8_t)
-    const std::u8string value = path.u8string();
-    return std::string(reinterpret_cast<const char*>(value.data()), value.size());
-#else
-    return path.u8string();
-#endif
+    return neoshared::pathToUtf8(path);
 }
 
 std::string readTextFile(const std::filesystem::path& file) {

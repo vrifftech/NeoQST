@@ -30,7 +30,6 @@ if [[ ${#WX_DEPENDENCIES[@]} -eq 0 ]]; then
 fi
 
 mkdir -p "$LIB_DIR" "$LIBEXEC_DIR"
-WX_LIBRARY_NAMES=()
 for dependency in "${WX_DEPENDENCIES[@]}"; do
   soname="${dependency%%$'\t'*}"
   source_path="${dependency#*$'\t'}"
@@ -40,7 +39,6 @@ for dependency in "${WX_DEPENDENCIES[@]}"; do
   fi
   cp -L -- "$source_path" "$LIB_DIR/$soname"
   chmod 0644 "$LIB_DIR/$soname"
-  WX_LIBRARY_NAMES+=("$soname")
 done
 
 mv -- "$GUI_PATH" "$REAL_GUI"
@@ -57,15 +55,6 @@ exec "$APP_ROOT/libexec/neoqst/NeoQST" "$@"
 WRAPPER
 chmod 0755 "$GUI_PATH" "$REAL_GUI"
 
-{
-  printf 'Bundled wxWidgets runtime libraries for NeoQST\n'
-  if command -v wx-config >/dev/null 2>&1; then
-    printf 'Build wxWidgets version: %s\n' "$(wx-config --version)"
-    printf 'Build wxWidgets configuration: %s\n' "$(wx-config --selected-config 2>/dev/null || true)"
-  fi
-  printf '\nLibraries:\n'
-  printf '  %s\n' "${WX_LIBRARY_NAMES[@]+"${WX_LIBRARY_NAMES[@]}"}"
-} > "$STAGE_ROOT/BUNDLED-WXWIDGETS.txt"
 
 verification="$(LD_LIBRARY_PATH="$LIB_DIR" ldd "$REAL_GUI")"
 printf '%s\n' "$verification"
