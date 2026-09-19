@@ -57,6 +57,7 @@ include(GNUInstallDirs)
 
 message(STATUS "Using NeoShared: ${NEOSHARED_ROOT}")
 include("${NEOSHARED_ROOT}/cmake/NeoMinimalRelease.cmake")
+include("${NEOSHARED_ROOT}/cmake/NeoVersion.cmake")
 include("${NEOSHARED_ROOT}/cmake/NeoMacOSBundle.cmake")
 include("${NEOSHARED_ROOT}/cmake/NeoWasm.cmake")
 if(NOT TARGET neoshared::gff)
@@ -81,6 +82,12 @@ neoqst_enable_warnings(neoqst_core)
 
 if(NEOQST_BUILD_CLI)
     add_executable(neoqst-cli src/CliMain.cpp)
+    neo_add_windows_version_resource(neoqst-cli
+        VERSION "${PROJECT_VERSION}"
+        PRODUCT_NAME "NeoQST"
+        FILE_DESCRIPTION "NeoQST command-line Jade Empire quest editor"
+        INTERNAL_NAME "neoqst-cli"
+        ORIGINAL_FILENAME "neoqst-cli.exe")
     target_link_libraries(neoqst-cli PRIVATE
         neoqst_core
         neoshared::tlk
@@ -142,9 +149,6 @@ if(NEOQST_BUILD_WX_GUI)
 
     if(wxWidgets_FOUND OR TARGET wx::core OR TARGET wxWidgets::wxWidgets)
         set(NEOQST_WX_SOURCES src/wx/main.cpp)
-        if(WIN32)
-            list(APPEND NEOQST_WX_SOURCES resources/neoqst.rc)
-        endif()
 
         if(WIN32)
             add_executable(NeoQST WIN32 ${NEOQST_WX_SOURCES})
@@ -153,6 +157,13 @@ if(NEOQST_BUILD_WX_GUI)
         else()
             add_executable(NeoQST ${NEOQST_WX_SOURCES})
         endif()
+        neo_add_windows_version_resource(NeoQST
+            VERSION "${PROJECT_VERSION}"
+            PRODUCT_NAME "NeoQST"
+            FILE_DESCRIPTION "NeoQST Jade Empire quest editor"
+            INTERNAL_NAME "NeoQST"
+            ORIGINAL_FILENAME "NeoQST.exe"
+            ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/neoqst.ico")
         neo_configure_macos_bundle(NeoQST
             NAME "NeoQST"
             IDENTIFIER "com.vrifftech.neoqst"
