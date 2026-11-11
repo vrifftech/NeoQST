@@ -230,8 +230,9 @@ int importDocument(const std::filesystem::path& input,
 
 void usage() {
     std::cout
-        << "NeoQST Jade Empire quest editor CLI\n\n"
+        << "NeoQST " << NEOQST_VERSION << " Jade Empire quest editor CLI\n\n"
         << "Usage:\n"
+        << "  neoqst-cli --version\n"
         << "  neoqst-cli <quest.qst|quest.qst2> [dialog.tlk]\n"
         << "  neoqst-cli --info <quest.qst|quest.qst2>\n"
         << "  neoqst-cli --new <output.qst|output.qst2>\n"
@@ -249,6 +250,10 @@ int main(int argc, char** argv) {
         if (argc >= 2 && (std::string(argv[1]) == "--help" || std::string(argv[1]) == "-h" ||
                           std::string(argv[1]) == "help")) {
             usage();
+            return 0;
+        }
+        if (argc >= 2 && std::string(argv[1]) == "--version") {
+            std::cout << "NeoQST " << NEOQST_VERSION << '\n';
             return 0;
         }
         if (argc >= 2 && std::string(argv[1]) == "--info") {

@@ -82,6 +82,7 @@ neoqst_enable_warnings(neoqst_core)
 
 if(NEOQST_BUILD_CLI)
     add_executable(neoqst-cli src/CliMain.cpp)
+    target_compile_definitions(neoqst-cli PRIVATE NEOQST_VERSION="${PROJECT_VERSION}")
     neo_add_windows_version_resource(neoqst-cli
         VERSION "${PROJECT_VERSION}"
         PRODUCT_NAME "NeoQST"

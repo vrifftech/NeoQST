@@ -664,6 +664,7 @@ private:
             sourceImport_.reset();
 #endif
             settings_.addRecentFile(path);
+            tryLoadResolvedTlk(path);
             updateAll();
             wxui::setStatusText(*this, "Opened " + neosettings::pathToUtf8(path));
             return true;
@@ -834,6 +835,15 @@ private:
             if (completion) completion(false);
             return false;
         }
+    }
+
+    void tryLoadResolvedTlk(const std::filesystem::path& sourcePath) {
+        neogames::ResourceGameContext context;
+        context.definitiveGame = neogames::GameId::JadeEmpire;
+        const auto resolution = neogames::resolver().resolveContext(sourcePath, context);
+        if (resolution.tlkPath.empty()) return;
+        if (tlk_ && neosettings::samePathForMru(tlkPathValue_, resolution.tlkPath)) return;
+        loadTlk(resolution.tlkPath, false);
     }
 
     void loadTlkDialog() {
@@ -1461,9 +1471,7 @@ private:
 class NeoQSTApp final : public wxApp {
 public:
     bool OnInit() override {
-#if wxCHECK_VERSION(3, 3, 0)
-        SetAppearance(Appearance::System);
-#endif
+        wxui::initializeTheme("NeoQST");
         auto* frame = new NeoQSTFrame();
         frame->Show(true);
         if (argc > 1) {
