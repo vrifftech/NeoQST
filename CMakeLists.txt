@@ -5,9 +5,13 @@ if(POLICY CMP0091)
 endif()
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "MSVC runtime library" FORCE)
 
-project(NeoQST VERSION 1.0.0 DESCRIPTION "Jade Empire QST/QST2 quest editor" LANGUAGES CXX)
-
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/NeoSharedSource.cmake")
+include("${NEOSHARED_ROOT}/cmake/NeoVersion.cmake")
+neo_read_version_header(NEOQST_VERSION
+    "${CMAKE_CURRENT_LIST_DIR}/src/core/Version.hpp"
+    NEOQST_VERSION_STRING)
+project(NeoQST VERSION ${NEOQST_VERSION} DESCRIPTION "Jade Empire QST/QST2 quest editor" LANGUAGES CXX)
+
 
 if(MSVC)
     foreach(_neo_runtime_flag_var IN ITEMS
@@ -57,7 +61,6 @@ include(GNUInstallDirs)
 
 message(STATUS "Using NeoShared: ${NEOSHARED_ROOT}")
 include("${NEOSHARED_ROOT}/cmake/NeoMinimalRelease.cmake")
-include("${NEOSHARED_ROOT}/cmake/NeoVersion.cmake")
 include("${NEOSHARED_ROOT}/cmake/NeoMacOSBundle.cmake")
 include("${NEOSHARED_ROOT}/cmake/NeoWasm.cmake")
 if(NOT TARGET neoshared::gff)
