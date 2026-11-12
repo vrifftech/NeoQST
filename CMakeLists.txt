@@ -77,6 +77,7 @@ target_include_directories(neoqst_core
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
 )
 target_link_libraries(neoqst_core PUBLIC neoshared::gff)
+target_compile_definitions(neoqst_core PUBLIC NEOQST_VERSION="${PROJECT_VERSION}")
 target_compile_features(neoqst_core PUBLIC cxx_std_17)
 neoqst_enable_warnings(neoqst_core)
 

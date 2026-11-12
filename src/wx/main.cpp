@@ -1386,7 +1386,7 @@ private:
     void showAbout() {
         wxAboutDialogInfo info;
         info.SetName("NeoQST");
-        info.SetVersion("1.0.0");
+        info.SetVersion(NEOQST_VERSION);
         info.SetDescription("Jade Empire QST/QST2 quest editor");
         info.SetIcon(GetIcon());
         wxAboutBox(info, this);
