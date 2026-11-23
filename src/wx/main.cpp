@@ -1,3 +1,4 @@
+#include "NeoUpdater.hpp"
 #include "QstOperations.hpp"
 #include <gff/GffJson.hpp>
 #include <gff/GffXml.hpp>
@@ -1474,6 +1475,10 @@ public:
         wxui::initializeTheme("NeoQST");
         auto* frame = new NeoQSTFrame();
         frame->Show(true);
+#if !defined(__EMSCRIPTEN__)
+        neoupdate::install(*frame, NEO_UPDATE_APPLICATION, NEO_UPDATE_VERSION);
+#endif
+
         if (argc > 1) {
             frame->openFromCommandLine(neosettings::pathFromWx(wxString(argv[1])));
         }

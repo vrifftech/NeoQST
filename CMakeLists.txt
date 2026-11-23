@@ -179,6 +179,7 @@ if(NEOQST_BUILD_WX_GUI)
             SLUG "neoqst"
             ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/neoqst.svg"
         )
+        neo_enable_updates(NeoQST "NeoQST" "${PROJECT_VERSION}")
         target_link_libraries(NeoQST PRIVATE
             neoqst_core
             neoshared::tlk
